@@ -95,5 +95,6 @@ class IterativeDeepening(GraphSearch):
             P = {start: None}
             Q = [start]
             path_to = {start: [start]}
+
             d += 1
         return [], last_opened_nodes
