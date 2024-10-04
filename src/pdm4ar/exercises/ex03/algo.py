@@ -1,6 +1,6 @@
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-import heapq    # you may find this helpful
+import heapq  # you may find this helpful
 
 from osmnx.distance import great_circle_vec
 
@@ -17,11 +17,35 @@ class InformedGraphSearch(ABC):
         # Abstract function. Nothing to do here.
         pass
 
+
 @dataclass
 class UniformCostSearch(InformedGraphSearch):
     def path(self, start: X, goal: X) -> Path:
         # todo
-        pass
+        Q = []
+        heapq.heappush(Q, (0, start))
+        P = {start: None}
+        costToReach = {start: 0}
+        opened_nodes = []
+        while Q:
+            s = heapq.heappop(Q)[1]
+            if s in opened_nodes:
+                continue
+            opened_nodes.append(s)
+            if s == goal:
+                path = [s]
+                while s != start:
+                    s = P[s]
+                    path = [s] + path
+                return path
+            for v in self.graph.adj_list[s]:
+                new_costToReach = costToReach[s] + self.graph.get_weight(s, v)
+                if v not in costToReach or new_costToReach < costToReach[v]:
+                    costToReach[v] = new_costToReach
+                    heapq.heappush(Q, (new_costToReach, v))
+                    P[v] = s
+        return []
+
 
 @dataclass
 class Astar(InformedGraphSearch):
@@ -49,10 +73,54 @@ class Astar(InformedGraphSearch):
         # Implement your heuristic here. Your `path` function should NOT call
         # this function directly. Rather, it should call `heuristic`
         # todo
-        return 0
-        
+        u_lon, u_lat = self.graph.get_node_coordinates(u)
+        v_lon, v_lat = self.graph.get_node_coordinates(v)
+
+        euclid_distance = great_circle_vec(u_lat, u_lon, v_lat, v_lon)
+        speed_to_other_nodes = 0
+        for i in self.graph.adj_list[u]:
+            i_lon, i_lat = self.graph.get_node_coordinates(i)
+            speed_to_other_nodes = max(
+                great_circle_vec(u_lat, u_lon, i_lat, i_lon) / self.graph.get_weight(u, i), speed_to_other_nodes
+            )
+        if speed_to_other_nodes > TravelSpeed.SECONDARY.value:
+            speed = TravelSpeed.HIGHWAY.value
+        else:
+            speed = TravelSpeed.SECONDARY.value
+        # speed = self.graph._get_node_attribute(u, "highway")
+        return euclid_distance / speed
+        if euclid_distance > 10000:
+            speed = TravelSpeed.HIGHWAY.value  # over 10km -> highway speed, two cities
+            return euclid_distance / speed
+        else:  # under 10km -> secondary speed, within city
+            manhattan_distance = 6371000 * (abs(u_lon - v_lon) + abs(u_lat - v_lat))
+            speed = TravelSpeed.HIGHWAY.value  # highest allowed speed -> lowest allowed time -> should be admissible
+            return manhattan_distance / speed
+
     def path(self, start: X, goal: X) -> Path:
         # todo
+        Q = []
+        heapq.heappush(Q, (0 + self.heuristic(start, goal), start))
+        P = {start: None}
+        costToReach = {start: 0.0}
+        opened_nodes = []
+        while Q:
+            s = heapq.heappop(Q)[1]
+            if s in opened_nodes:
+                continue
+            opened_nodes.append(s)
+            if s == goal:
+                path = [s]
+                while s != start:
+                    s = P[s]
+                    path = [s] + path
+                return path
+            for v in self.graph.adj_list[s]:
+                new_costToReach = costToReach[s] + self.graph.get_weight(s, v)
+                if v not in costToReach or new_costToReach < costToReach[v]:
+                    costToReach[v] = new_costToReach
+                    heapq.heappush(Q, (new_costToReach + self.heuristic(v, goal), v))
+                    P[v] = s
         return []
 
 
