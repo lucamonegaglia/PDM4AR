@@ -85,10 +85,14 @@ class Astar(InformedGraphSearch):
             )
         if speed_to_other_nodes > TravelSpeed.SECONDARY.value:
             speed = TravelSpeed.HIGHWAY.value
-        else:
+        elif speed_to_other_nodes > TravelSpeed.CITY.value:
             speed = TravelSpeed.SECONDARY.value
-        # speed = self.graph._get_node_attribute(u, "highway")
+        elif speed_to_other_nodes > TravelSpeed.PEDESTRIAN.value:
+            speed = TravelSpeed.CITY.value
+        else:
+            speed = TravelSpeed.PEDESTRIAN.value
         return euclid_distance / speed
+
         if euclid_distance > 10000:
             speed = TravelSpeed.HIGHWAY.value  # over 10km -> highway speed, two cities
             return euclid_distance / speed
