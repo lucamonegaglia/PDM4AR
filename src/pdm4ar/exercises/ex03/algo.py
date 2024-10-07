@@ -83,6 +83,16 @@ class Astar(InformedGraphSearch):
             speed_to_other_nodes = max(
                 great_circle_vec(u_lat, u_lon, i_lat, i_lon) / self.graph.get_weight(u, i), speed_to_other_nodes
             )
+
+        if speed_to_other_nodes > TravelSpeed.SECONDARY.value:
+            speed = TravelSpeed.HIGHWAY.value
+        else:
+            speed = TravelSpeed.SECONDARY.value
+
+        
+        return euclid_distance / speed_to_other_nodes
+
+        """ this made it worse   
         if speed_to_other_nodes > TravelSpeed.SECONDARY.value:
             speed = TravelSpeed.HIGHWAY.value
         elif speed_to_other_nodes > TravelSpeed.CITY.value:
@@ -92,14 +102,7 @@ class Astar(InformedGraphSearch):
         else:
             speed = TravelSpeed.PEDESTRIAN.value
         return euclid_distance / speed
-
-        if euclid_distance > 10000:
-            speed = TravelSpeed.HIGHWAY.value  # over 10km -> highway speed, two cities
-            return euclid_distance / speed
-        else:  # under 10km -> secondary speed, within city
-            manhattan_distance = 6371000 * (abs(u_lon - v_lon) + abs(u_lat - v_lat))
-            speed = TravelSpeed.HIGHWAY.value  # highest allowed speed -> lowest allowed time -> should be admissible
-            return manhattan_distance / speed
+        """
 
     def path(self, start: X, goal: X) -> Path:
         # todo
