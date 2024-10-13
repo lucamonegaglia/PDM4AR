@@ -24,7 +24,7 @@ class GridMdp:
 
     def allowed_actions(self, state: State) -> list[Action]:
         if self.grid[state] == 0:
-            return [Action.STAY, Action.ABANDON]
+            return [Action.STAY]
         if self.grid[state] == 5:
             return [Action.ABANDON]
         l = []
@@ -155,7 +155,7 @@ class GridMdp:
         if action == Action.ABANDON:
             return -10.0
         if self.grid[state] == 1 or self.grid[state] == 2 or self.grid[state] == 4:  # start, grass, wormhole
-            if self.grid[next_state] == 1:
+            if self.grid[next_state] == 1 and not self.adjacent(next_state, state):
                 return -11.0
             return -1.0
         if self.grid[state] == 3:  # swamp
