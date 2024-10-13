@@ -52,7 +52,7 @@ class ValueIteration(GridMdpSolver):
                 print("HAISBAGLIATOCAZZOOOO", state, max_expected_value, gt_value_func[state])
         """
         delta_v = np.inf
-        epsilon = 1e-3
+        epsilon = 0.01
         while delta_v > epsilon:
             delta_v = 0
             for state in np.ndindex(grid_mdp.grid.shape):

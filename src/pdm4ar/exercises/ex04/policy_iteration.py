@@ -42,18 +42,17 @@ class PolicyIteration(GridMdpSolver):
 
         while not np.array_equal(new_policy, policy):
             policy = np.copy(new_policy)
-
-            while True:  # Perform a few steps of value iteration
+            delta_v = 1
+            epsilon = 0.1
+            r = rewards_mat[states_range, policy]
+            t = transition_p_mat[states_range, policy, :]
+            while delta_v > epsilon:  # Perform a few steps of value iteration
                 # print(rewards_mat[states_range, policy].shape)
                 # print(transition_p_mat[states_range, policy, :].shape, V.shape)
-                r = rewards_mat[states_range, policy]
-                t = transition_p_mat[states_range, policy, :]
-                V_new = rewards_mat[states_range, policy] + grid_mdp.gamma * transition_p_mat[
-                    states_range, policy, :
-                ].dot(V)
-                if np.max(np.abs(V - V_new)) < 1e-3:  # Check for convergence
-                    break
+                V_new = r + grid_mdp.gamma * t.dot(V)
+                delta_v = np.max(np.abs(V - V_new))
                 V = V_new
+
             Q = rewards_mat + grid_mdp.gamma * transition_p_mat.dot(V)
             new_policy = Q.argmax(axis=1)
             """
