@@ -351,7 +351,7 @@ class CollisionChecker:
             if self.Dist(p_start) > seg_lenght + r:
                 continue
 
-            else:  # sample points on the segment
+            else:  # sample points on the segment blablabla
 
                 for p_seg in CollisionPrimitives.sample_segment(seg):
 
