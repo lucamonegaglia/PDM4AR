@@ -268,7 +268,8 @@ def print_path(path: list[Segment]):
 def calculate_dubins_path(start_config: SE2Transform, end_config: SE2Transform, radius: float) -> Path:
     # TODO implement here your solution
     # Please keep segments with zero length in the return list & return a valid dubins path!
-
+    # start_config = SE2Transform([0, 0], np.pi / 2)
+    # end_config = SE2Transform([0, 0], -np.pi / 2)
     # start circles
     turning_circles = calculate_turning_circles(start_config, radius)
     left_circle_start = turning_circles.left

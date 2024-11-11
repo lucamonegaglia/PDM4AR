@@ -20,7 +20,6 @@ def compare_lexicographic(a: Tuple[float], b: Tuple[float]) -> ComparisonOutcome
     For example, the term in position 1 is less important than the one in position 0,
     but more important than the one in position 2
     """
-    # todo: implement the comparison
     for i, _ in enumerate(a):
         if a[i] < b[i]:
             return FIRST_PREFERRED
