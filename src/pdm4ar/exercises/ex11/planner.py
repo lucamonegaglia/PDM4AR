@@ -185,10 +185,44 @@ class SpaceshipPlanner:
         """
         Define constraints for SCvx.
         """
+        x_goal = self.goal_state.idx[0]
+        y_goal = self.goal_state.idx[1]
+        x_fin = self.variables["X"][0][self.params.K - 1]
+        y_fin = self.variables["X"][1][self.params.K - 1]
+
+        pose_goal = self.goal_state.idx[2]
+        pose_fin = self.variables["X"][2][self.params.K - 1]
+
+        vx_final = self.variables["X"][3][self.params.K - 1]
+        vy_final = self.variables["X"][4][self.params.K - 1]
+        vx_goal = self.goal_state.idx[3]
+        vy_goal = self.goal_state.idx[4]
         #
         constraints = [
+            # Initial state costraint (WAS ALREADY IN THE EXAMPLE)
             self.variables["X"][:, 0] == self.problem_parameters["init_state"],
+            # Input constraints
+            self.variables["U"][:][0] == np.zeros(self.spaceship.n_u),
+            self.variables["U"][:][self.params.K - 1] == np.zeros(self.spaceship.n_u),
+            # Needs to be close to the goal
+            np.linalg.norm([x_fin - x_goal, y_fin - y_goal]) < self.params.stop_crit,
+            # Orientation constraint
+            np.linalg.norm(pose_fin - pose_goal) < self.params.stop_crit,
+            # Specified velocity constraint
+            np.linalg.norm([vx_final - vx_goal, vy_final - vy_goal]) < self.params.stop_crit,
+            # No collisions
             # TODO
+            # Mass constraint
+            self.variables["X"][7] > self.sg.m,
+            # Thrust constraint
+            self.variables["U"][0] >= self.sp.thrust_limits[0] and self.variables["U"][0] <= self.sp.thrust_limits[1],
+            # Thruster angle costraint
+            self.variables["X"][6][:] >= self.sp.delta_limits[0]
+            and self.variables["X"][6][:] <= self.sp.delta_limits[1],
+            # Maximum time
+            # TODO
+            # Rate of change
+            self.variables["U"][1] >= self.sp.ddelta_limits[0] and self.variables["U"][1] <= self.sp.ddelta_limits[1],
         ]
         return constraints
 
