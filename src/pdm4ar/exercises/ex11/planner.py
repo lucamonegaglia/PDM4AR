@@ -205,15 +205,15 @@ class SpaceshipPlanner:
             self.variables["U"][:][0] == np.zeros(self.spaceship.n_u),
             self.variables["U"][:][self.params.K - 1] == np.zeros(self.spaceship.n_u),
             # Needs to be close to the goal
-            np.linalg.norm([x_fin - x_goal, y_fin - y_goal]) < self.params.stop_crit,
+            np.linalg.norm([x_fin - x_goal, y_fin - y_goal]) <= self.params.stop_crit,
             # Orientation constraint
-            np.linalg.norm(pose_fin - pose_goal) < self.params.stop_crit,
+            np.linalg.norm(pose_fin - pose_goal) <= self.params.stop_crit,
             # Specified velocity constraint
-            np.linalg.norm([vx_final - vx_goal, vy_final - vy_goal]) < self.params.stop_crit,
+            np.linalg.norm([vx_final - vx_goal, vy_final - vy_goal]) <= self.params.stop_crit,
             # No collisions
             # TODO
             # Mass constraint
-            self.variables["X"][7] > self.sg.m,
+            self.variables["X"][7] >= self.sg.m,
             # Thrust constraint
             self.variables["U"][0] >= self.sp.thrust_limits[0] and self.variables["U"][0] <= self.sp.thrust_limits[1],
             # Thruster angle costraint
@@ -223,6 +223,9 @@ class SpaceshipPlanner:
             # TODO
             # Rate of change
             self.variables["U"][1] >= self.sp.ddelta_limits[0] and self.variables["U"][1] <= self.sp.ddelta_limits[1],
+            # Missing dynamics constraints
+            # Should we add 39c,39d,39e?
+            # Are 39f, 39d already in here?
         ]
         return constraints
 
