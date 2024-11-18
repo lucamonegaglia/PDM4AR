@@ -192,6 +192,7 @@ class SpaceshipPlanner:
 
         pose_goal = self.goal_state.idx[2]
         pose_fin = self.variables["X"][2][self.params.K - 1]
+        pose_diff = (pose_fin - pose_goal + np.pi) % (2 * np.pi) - np.pi
 
         vx_final = self.variables["X"][3][self.params.K - 1]
         vy_final = self.variables["X"][4][self.params.K - 1]
@@ -207,7 +208,7 @@ class SpaceshipPlanner:
             # Needs to be close to the goal
             np.linalg.norm([x_fin - x_goal, y_fin - y_goal]) <= self.params.stop_crit,
             # Orientation constraint
-            np.linalg.norm(pose_fin - pose_goal) <= self.params.stop_crit,
+            np.linalg.norm(pose_diff) <= self.params.stop_crit,
             # Specified velocity constraint
             np.linalg.norm([vx_final - vx_goal, vy_final - vy_goal]) <= self.params.stop_crit,
             # No collisions
