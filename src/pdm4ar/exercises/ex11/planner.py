@@ -141,6 +141,7 @@ class SpaceshipPlanner:
         """
         Define initial guess for SCvx.
         """
+        # TODO
         K = self.params.K
 
         X = np.zeros((self.spaceship.n_x, K))
@@ -153,6 +154,7 @@ class SpaceshipPlanner:
         """
         Sets goal for SCvx.
         """
+        # TODO what is (6,1)?
         self.goal = cvx.Parameter((6, 1))
         pass
 
@@ -174,7 +176,7 @@ class SpaceshipPlanner:
         """
         problem_parameters = {
             "init_state": cvx.Parameter(self.spaceship.n_x)
-            # ...
+            # TODO
         }
 
         return problem_parameters
@@ -183,9 +185,10 @@ class SpaceshipPlanner:
         """
         Define constraints for SCvx.
         """
+        #
         constraints = [
             self.variables["X"][:, 0] == self.problem_parameters["init_state"],
-            # ...
+            # TODO
         ]
         return constraints
 
@@ -193,6 +196,7 @@ class SpaceshipPlanner:
         """
         Define objective for SCvx.
         """
+        # TODO
         # Example objective
         objective = self.params.weight_p @ self.variables["p"]
 
@@ -211,19 +215,20 @@ class SpaceshipPlanner:
         )
 
         self.problem_parameters["init_state"].value = self.X_bar[:, 0]
-        # ...
+        # TODO populate other problem parameters + function is not modifying anything
 
     def _check_convergence(self) -> bool:
         """
         Check convergence of SCvx.
         """
-
+        # TODO
         pass
 
     def _update_trust_region(self):
         """
         Update trust region radius.
         """
+        # TODO
         pass
 
     @staticmethod
@@ -231,6 +236,7 @@ class SpaceshipPlanner:
         """
         Example of how to create a DgSampledSequence from numpy arrays and timestamps.
         """
+        # TODO repurpose this to take our arrays as parameters?
         ts = (0, 1, 2, 3, 4)
         # in case my planner returns 3 numpy arrays
         F = np.array([0, 1, 2, 3, 4])
