@@ -113,7 +113,7 @@ class SpaceshipPlanner:
         # Cvx Optimisation Problem
         self.problem = cvx.Problem(objective, constraints)
 
-    def compute_trajectory(
+    def compute_trajectory(  # MISSING TRUST REGION UPDATE, VIRUTAL CONTROL???
         self, init_state: SpaceshipState, goal_state: DynObstacleState
     ) -> tuple[DgSampledSequence[SpaceshipCommands], DgSampledSequence[SpaceshipState]]:
         """
@@ -122,16 +122,43 @@ class SpaceshipPlanner:
         self.init_state = init_state
         self.goal_state = goal_state
 
-        #
-        # TODO: Implement SCvx algorithm or comparable
-        #
+        # Initialize state and control trajectories
+        self.X_bar, self.U_bar, self.p_bar = self.initial_guess()
 
-        self._convexification()
-        try:
-            error = self.problem.solve(verbose=self.params.verbose_solver, solver=self.params.solver)
-        except cvx.SolverError:
-            print(f"SolverError: {self.params.solver} failed to solve the problem.")
+        max_iterations = self.params.max_iterations
+        for iteration in range(max_iterations):
+            print(f"Iteration {iteration + 1}")
 
+            self._convexification()
+            objective = self._get_objective()
+            self.problem = cvx.Problem(objective, self._get_constraints())
+            try:  # QUESTION: When and how should I use error?
+                error = self.problem.solve(verbose=self.params.verbose_solver, solver=self.params.solver)
+                print(f"Iteration {iteration + 1} error: {error}")
+
+            except cvx.SolverError:
+                print(f"SolverError: {self.params.solver} failed to solve the problem.")
+
+            # Check the solution status
+            if self.problem.status == cvx.OPTIMAL:
+                print("Optimal solution found.")
+            elif self.problem.status == cvx.INFEASIBLE:
+                print("Problem is infeasible.")
+            #    return None, None
+            elif self.problem.status == cvx.UNBOUNDED:
+                print("Problem is unbounded.")
+            #    return None, None
+            else:
+                print("Solver did not converge.")
+            #    return None, None
+
+            # Update the trajectories with the new solution
+            self.X_bar = self.variables["X"].value
+            self.U_bar = self.variables["U"].value
+            self.p_bar = self.variables["p"].value
+
+            if self._check_convergence():
+                break
         # Example data: sequence from array
         mycmds, mystates = self._extract_seq_from_array()
 
