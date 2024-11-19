@@ -162,7 +162,9 @@ class SpaceshipPlanner:
             if self._check_convergence(new_objective, old_objective):
                 break
         # Example data: sequence from array
-        mycmds, mystates = self._extract_seq_from_array()
+        mycmds, mystates = self._extract_seq_from_array(
+            tuple(range(self.params.K)), self.U_bar[0], self.U_bar[1], self.X_bar
+        )
 
         return mycmds, mystates
 
@@ -301,7 +303,7 @@ class SpaceshipPlanner:
         """
         Check convergence of SCvx.
         """
-        return np.abs(new_objective - old_objective) < self.params.stop_crit * abs(old_objective)
+        return abs(new_objective - old_objective) < self.params.stop_crit * abs(old_objective)
 
     def _update_trust_region(self):
         """
