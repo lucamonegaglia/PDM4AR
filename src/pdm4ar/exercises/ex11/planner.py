@@ -1,4 +1,5 @@
 from dataclasses import dataclass, field
+from hmac import new
 from typing import Union
 
 import cvxpy as cvx
@@ -128,14 +129,15 @@ class SpaceshipPlanner:
         max_iterations = self.params.max_iterations
         for iteration in range(max_iterations):
             print(f"Iteration {iteration + 1}")
-
             self._convexification()
             objective = self._get_objective()
+            old_objective = objective.value
             self.problem = cvx.Problem(objective, self._get_constraints())
             try:  # QUESTION: When and how should I use error?
                 error = self.problem.solve(verbose=self.params.verbose_solver, solver=self.params.solver)
                 print(f"Iteration {iteration + 1} error: {error}")
-
+                print(f"Iteration {iteration + 1} objective value: {objective.value}")
+                new_objective = objective.value
             except cvx.SolverError:
                 print(f"SolverError: {self.params.solver} failed to solve the problem.")
 
@@ -157,7 +159,7 @@ class SpaceshipPlanner:
             self.U_bar = self.variables["U"].value
             self.p_bar = self.variables["p"].value
 
-            if self._check_convergence():
+            if self._check_convergence(new_objective, old_objective):
                 break
         # Example data: sequence from array
         mycmds, mystates = self._extract_seq_from_array()
@@ -295,12 +297,11 @@ class SpaceshipPlanner:
         # TODO populate other problem parameters + function is not modifying anything
         return A_bar, B_plus_bar, B_minus_bar, F_bar, r_bar
 
-    def _check_convergence(self) -> bool:
+    def _check_convergence(self, new_objective, old_objective) -> bool:
         """
         Check convergence of SCvx.
         """
-        # TODO
-        pass
+        return np.abs(new_objective - old_objective) < self.params.stop_crit * abs(old_objective)
 
     def _update_trust_region(self):
         """
@@ -310,22 +311,35 @@ class SpaceshipPlanner:
         pass
 
     @staticmethod
-    def _extract_seq_from_array() -> tuple[DgSampledSequence[SpaceshipCommands], DgSampledSequence[SpaceshipState]]:
+    def _extract_seq_from_array(
+        ts: tuple[int, ...], F: np.ndarray, ddelta: np.ndarray, npstates: np.ndarray
+    ) -> tuple[DgSampledSequence[SpaceshipCommands], DgSampledSequence[SpaceshipState]]:
         """
-        Example of how to create a DgSampledSequence from numpy arrays and timestamps.
+        Create DgSampledSequence from provided numpy arrays and timestamps.
+
+        Parameters:
+            ts (tuple[int, ...]): Timestamps corresponding to the samples.
+            F (np.ndarray): Force or action inputs (1D array).
+            ddelta (np.ndarray): Secondary inputs, e.g., deltas or accelerations (1D array).
+            npstates (np.ndarray): State trajectory (2D array with one row per timestamp).
+
+        Returns:
+            tuple[DgSampledSequence[SpaceshipCommands], DgSampledSequence[SpaceshipState]]:
+            Command and state sequences.
         """
-        # TODO repurpose this to take our arrays as parameters?
-        ts = (0, 1, 2, 3, 4)
-        # in case my planner returns 3 numpy arrays
-        F = np.array([0, 1, 2, 3, 4])
-        ddelta = np.array([0, 0, 0, 0, 0])
+        # Validate inputs
+        assert (
+            len(ts) == F.shape[0] == ddelta.shape[0] == npstates.shape[0]
+        ), "All inputs must have the same length as the number of timestamps."
+
+        # Create the command sequence
         cmds_list = [SpaceshipCommands(f, dd) for f, dd in zip(F, ddelta)]
         mycmds = DgSampledSequence[SpaceshipCommands](timestamps=ts, values=cmds_list)
 
-        # in case my state trajectory is in a 2d array
-        npstates = np.random.rand(len(ts), 8)
+        # Create the state sequence
         states = [SpaceshipState(*v) for v in npstates]
         mystates = DgSampledSequence[SpaceshipState](timestamps=ts, values=states)
+
         return mycmds, mystates
 
 
