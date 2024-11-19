@@ -20,6 +20,7 @@ class MyAgentParams:
     """
     You can for example define some agent parameters.
     """
+
     my_tol: float = 0.1
 
 
@@ -45,10 +46,10 @@ class SpaceshipAgent(Agent):
     sp: SpaceshipParameters
 
     def __init__(
-            self,
-            init_state: SpaceshipState,
-            satellites: dict[PlayerName, SatelliteParams],
-            planets: dict[PlayerName, PlanetParams],
+        self,
+        init_state: SpaceshipState,
+        satellites: dict[PlayerName, SatelliteParams],
+        planets: dict[PlayerName, PlanetParams],
     ):
         """
         Initializes the agent.
@@ -76,6 +77,7 @@ class SpaceshipAgent(Agent):
         #
         # TODO: Implement Compute Initial Trajectory
         #
+        self.planner.compute_trajectory(self.init_state, self.goal_state)
 
         self.cmds_plan, self.state_traj = self.planner.compute_trajectory(self.init_state, self.goal_state)
 

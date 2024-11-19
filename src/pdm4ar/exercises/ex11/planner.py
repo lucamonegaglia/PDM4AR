@@ -193,6 +193,7 @@ class SpaceshipPlanner:
             "X": cvx.Variable((self.spaceship.n_x, self.params.K)),
             "U": cvx.Variable((self.spaceship.n_u, self.params.K)),
             "p": cvx.Variable(self.spaceship.n_p),
+            "v_dyn": cvx.Variable((self.spaceship.n_x, self.params.K - 1)),
         }
 
         return variables
@@ -226,6 +227,9 @@ class SpaceshipPlanner:
         vx_goal = self.goal_state.idx[3]
         vy_goal = self.goal_state.idx[4]
         #
+
+        A, B_plus, B_minus, F, r = self._convexification()
+
         constraints = [
             # Initial state costraint (WAS ALREADY IN THE EXAMPLE)
             self.variables["X"][:, 0] == self.problem_parameters["init_state"],
@@ -254,6 +258,14 @@ class SpaceshipPlanner:
             # Missing dynamics constraints
             # Should we add 39c,39d,39e?
             # Are 39f, 39d already in here?
+            # Dynamics constraints
+            self.variables["X"][:, 1 : self.params.K]
+            == A @ self.variables["X"][:, 0 : self.params.K - 1]
+            + B_plus @ self.variables["U"][:, 1 : self.params.K]
+            + B_minus @ self.variables["U"][:, 0 : self.params.K - 1]
+            + F @ self.variables["p"]
+            + r
+            + self.variables["v_dyn"],
         ]
         return constraints
 
@@ -281,6 +293,7 @@ class SpaceshipPlanner:
 
         self.problem_parameters["init_state"].value = self.X_bar[:, 0]
         # TODO populate other problem parameters + function is not modifying anything
+        return A_bar, B_plus_bar, B_minus_bar, F_bar, r_bar
 
     def _check_convergence(self) -> bool:
         """
@@ -314,3 +327,36 @@ class SpaceshipPlanner:
         states = [SpaceshipState(*v) for v in npstates]
         mystates = DgSampledSequence[SpaceshipState](timestamps=ts, values=states)
         return mycmds, mystates
+
+
+# incompleto, non dovrebbe servire.
+if __name__ == "__main__":
+    sg = SpaceshipGeometry(
+        color="royalblue",
+        m=2.0,  # MASS TO BE INTENDED AS MASS OF THE ROCKET WITHOUT FUEL
+        Iz=1e-00,
+        w_half=0.4,
+        l_c=0.8,
+        l_f=0.5,
+        l_r=1,
+        l_t_half=0.3,
+        e=0.1,  # Example value for 'e'
+        w_t_half=0.3,
+        F_max=3.0,
+    )  # Example value for 'F_max'
+
+    sp = SpaceshipParameters(
+        m_v=2.0,
+        C_T=0.01,
+        vx_limits=(-10 / 3.6, 10 / 3.6),
+        acc_limits=(-1.0, 1.0),
+        thrust_limits=(-2.0, 2.0),
+        delta_limits=(-np.deg2rad(60), np.deg2rad(60)),
+        ddelta_limits=(-np.deg2rad(45), np.deg2rad(45)),
+    )
+    planets = {}
+    satellites = {}
+    planner = SpaceshipPlanner(planets, satellites, sg, sp)
+    init_state = SpaceshipState(0, 0, 0, 0, 0, 0, 0, 2)
+    goal_state = DynObstacleState(10, 10, 0, 0.1, 0.1, 0)
+    mycmds, mystates = planner.compute_trajectory(init_state, goal_state)
