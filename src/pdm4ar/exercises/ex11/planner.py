@@ -73,6 +73,9 @@ class SpaceshipPlanner:
     U_bar: NDArray
     p_bar: NDArray
 
+    old_objective: float
+    new_objective: float
+
     def __init__(
         self,
         planets: dict[PlayerName, PlanetParams],
@@ -136,13 +139,13 @@ class SpaceshipPlanner:
             print(f"Iteration {iteration + 1}")
             self._convexification()
             objective = self._get_objective()
-            old_objective = objective.value
+            self.old_objective = objective.value
             self.problem = cvx.Problem(objective, self._get_constraints())
             try:
                 error = self.problem.solve(verbose=self.params.verbose_solver, solver=self.params.solver)
                 print(f"Iteration {iteration + 1} error: {error}")
                 print(f"Iteration {iteration + 1} objective value: {objective.value}")
-                new_objective = objective.value
+                self.new_objective = objective.value
             except cvx.SolverError:
                 print(f"SolverError: {self.params.solver} failed to solve the problem.")
 
@@ -164,7 +167,7 @@ class SpaceshipPlanner:
             self.U_bar = self.variables["U"].value
             self.p_bar = self.variables["p"].value
 
-            if self._check_convergence(new_objective, old_objective):
+            if self._check_convergence():
                 break
         # Example data: sequence from array
         mycmds, mystates = self._extract_seq_from_array(
@@ -199,10 +202,11 @@ class SpaceshipPlanner:
         Define optimisation variables for SCvx.
         """
         variables = {
-            "X": cvx.Variable((self.spaceship.n_x, self.params.K)),
-            "U": cvx.Variable((self.spaceship.n_u, self.params.K)),
-            "p": cvx.Variable(self.spaceship.n_p),
-            "v_dyn": cvx.Variable((self.spaceship.n_x, self.params.K - 1)),
+            "X": cvx.Variable((self.spaceship.n_x, self.params.K), name="X"),
+            "U": cvx.Variable((self.spaceship.n_u, self.params.K), name="U"),
+            "p": cvx.Variable(self.spaceship.n_p, name="p", integer=True),
+            "v_dyn": cvx.Variable((self.spaceship.n_x, self.params.K - 1), name="v_dyn"),
+            # "delta": cvx.Variable(nonneg=True, name="delta"),
         }
         return variables
 
@@ -211,8 +215,8 @@ class SpaceshipPlanner:
         Define problem parameters for SCvx.
         """
         problem_parameters = {
-            "init_state": cvx.Parameter(self.spaceship.n_x),
-            "goal_config": cvx.Parameter(6),
+            "init_state": cvx.Parameter(self.spaceship.n_x, name="init_state"),
+            "goal_config": cvx.Parameter(6, name="goal_config"),
             # TODO
         }
 
@@ -232,12 +236,18 @@ class SpaceshipPlanner:
         # fin_coords = cvx.Parameter(2)
         fin_coords = cvx.vstack([x_fin, y_fin])
 
-        pose_goal = self.goal_state.psi
+        pose_goal = self.problem_parameters["goal_config"][2]
         pose_fin = self.variables["X"][2, self.params.K - 1]
         # Cambiato visto che l'operazione modulo (%) non si può usare in cvxpy
-        parte_intera = cvx.floor(pose_fin - pose_goal + np.pi / 2 * np.pi)
-        pose_diff = pose_fin - pose_goal + np.pi - 2 * np.pi * parte_intera - np.pi
+        # parte_intera = cvx.floor(pose_fin - pose_goal + np.pi / 2 * np.pi)
+        # pose_diff = pose_fin - pose_goal + np.pi - 2 * np.pi * parte_intera - np.pi
+        # Distanza diretta e complementare
 
+        # delta_1 = cvx.norm(pose_fin - pose_goal, 1)
+        # delta_2 = 2 * np.pi - delta_1
+
+        # Vincoli
+        constraints = []
         vx_fin = self.variables["X"][3, self.params.K - 1]
         vy_fin = self.variables["X"][4, self.params.K - 1]
         v_fin = cvx.vstack([vx_fin, vy_fin])
@@ -274,7 +284,10 @@ class SpaceshipPlanner:
             # Needs to be close to the goal
             cvx.norm(goal_coords - fin_coords) <= self.params.stop_crit,
             # Orientation constraint
-            cvx.norm(pose_diff) <= self.params.stop_crit,
+            # delta_1 >= self.variables["delta"],
+            # delta_2 >= self.variables["delta"],
+            # self.variables["delta"] <= self.params.stop_crit,
+            pose_fin - pose_goal <= self.params.stop_crit,
             # Specified velocity constraint
             cvx.norm(v_fin - v_goal) <= self.params.stop_crit,
             # No collisions
@@ -308,6 +321,11 @@ class SpaceshipPlanner:
             + r[i - 1]
             + self.variables["v_dyn"][:, i - 1]
             for i in range(1, self.params.K)
+        ]
+
+        constraints += [
+            cvx.norm(self.variables["X"][:6, i] - self.problem_parameters["goal_config"]) <= self.params.stop_crit
+            for i in range(self.variables["p"].value, self.params.K)
         ]
         return constraints
 
@@ -344,11 +362,11 @@ class SpaceshipPlanner:
             r_bar.reshape((-1, self.n_x), order="F"),
         )
 
-    def _check_convergence(self, new_objective, old_objective) -> bool:
+    def _check_convergence(self) -> bool:
         """
         Check convergence of SCvx.
         """
-        return abs(new_objective - old_objective) < self.params.stop_crit * abs(old_objective)
+        return abs(self.new_objective - self.old_objective) < self.params.stop_crit * abs(self.old_objective)
 
     def _update_trust_region(self):
         """
