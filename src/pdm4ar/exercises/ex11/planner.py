@@ -1,3 +1,4 @@
+from calendar import c
 from dataclasses import dataclass, field
 from hmac import new
 from typing import Union
@@ -92,6 +93,9 @@ class SpaceshipPlanner:
 
         # Spaceship Dynamics
         self.spaceship = SpaceshipDyn(self.sg, self.sp)
+        self.n_x = self.spaceship.n_x
+        self.n_u = self.spaceship.n_u
+        self.n_p = self.spaceship.n_p
 
         # Discretization Method
         # self.integrator = ZeroOrderHold(self.Spaceship, self.params.K, self.params.N_sub)
@@ -187,7 +191,7 @@ class SpaceshipPlanner:
         Sets goal for SCvx.
         """
         # TODO what is (6,1)?
-        self.goal = cvx.Parameter((6, 1))
+        # self.goal = cvx.Parameter((6, 1))
         pass
 
     def _get_variables(self) -> dict:
@@ -208,7 +212,7 @@ class SpaceshipPlanner:
         """
         problem_parameters = {
             "init_state": cvx.Parameter(self.spaceship.n_x),
-            "goal_state": cvx.Parameter(self.spaceship.n_x),
+            "goal_config": cvx.Parameter(6),
             # TODO
         }
 
@@ -218,8 +222,8 @@ class SpaceshipPlanner:
         """
         Define constraints for SCvx.
         """
-        x_goal = self.problem_parameters["goal_state"][0]
-        y_goal = self.problem_parameters["goal_state"][1]
+        x_goal = self.problem_parameters["goal_config"][0]
+        y_goal = self.problem_parameters["goal_config"][1]
         # goal_coords = cvx.Parameter(2)
         goal_coords = cvx.vstack([x_goal, y_goal])
 
@@ -238,8 +242,8 @@ class SpaceshipPlanner:
         vy_fin = self.variables["X"][4, self.params.K - 1]
         v_fin = cvx.vstack([vx_fin, vy_fin])
 
-        vx_goal = self.problem_parameters["goal_state"][3]
-        vy_goal = self.problem_parameters["goal_state"][4]
+        vx_goal = self.problem_parameters["goal_config"][3]
+        vy_goal = self.problem_parameters["goal_config"][4]
         v_goal = cvx.vstack([vx_goal, vy_goal])
 
         A, B_plus, B_minus, F, r = self._convexification()
@@ -255,6 +259,11 @@ class SpaceshipPlanner:
         print("p ", self.variables["p"].shape)
         print("r ", r.shape)
         print("v_dyn ", self.variables["v_dyn"].shape)
+
+        # print("Ak * xk", np.matmul(A, self.variables["X"][:, 0 : self.params.K - 1].T).shape)
+        # print("B_plus * uk+1", np.matmul(B_plus, self.variables["U"][:, 1 : self.params.K].T).shape)
+        # print("B_minus * uk", np.matmul(B_minus, self.variables["U"][:, 0 : self.params.K - 1].T).shape)
+        # print("F * p", np.matmul(F, self.variables["p"].T).shape)
 
         constraints = [
             # Initial state costraint (WAS ALREADY IN THE EXAMPLE)
@@ -286,14 +295,19 @@ class SpaceshipPlanner:
             # Missing dynamics constraints
             # Should we add 39c,39d,39e?
             # Are 39f, 39d already in here?
-            # Dynamics constraints
-            self.variables["X"][:, 1 : self.params.K]
-            == A @ self.variables["X"][:, 0 : self.params.K - 1].T
-            + B_plus @ self.variables["U"][:, 1 : self.params.K].T
-            + B_minus @ self.variables["U"][:, 0 : self.params.K - 1].T
-            + F @ self.variables["p"].T
-            + r
-            + self.variables["v_dyn"],
+        ]
+
+        # Dynamic constraints
+        # TODO vettorizzare usando cvx.matmul se si riesce, ma si lamenta perchè non sa gestire 3 dimensioni
+        constraints += [
+            self.variables["X"][:, i]
+            == cvx.matmul(A[i - 1], self.variables["X"][:, i - 1].T)
+            + cvx.matmul(B_plus[i - 1], self.variables["U"][:, i].T)
+            + cvx.matmul(B_minus[i - 1], self.variables["U"][:, i - 1].T)
+            + cvx.matmul(F[i - 1], self.variables["p"].T)
+            + r[i - 1]
+            + self.variables["v_dyn"][:, i - 1]
+            for i in range(1, self.params.K)
         ]
         return constraints
 
@@ -320,8 +334,15 @@ class SpaceshipPlanner:
         )
 
         self.problem_parameters["init_state"].value = self.X_bar[:, 0]
+        self.problem_parameters["goal_config"].value = self.goal_state.as_ndarray()
         # TODO populate other problem parameters + function is not modifying anything
-        return A_bar, B_plus_bar, B_minus_bar, F_bar, r_bar
+        return (
+            A_bar.reshape((-1, self.n_x, self.n_x), order="F"),
+            B_plus_bar.reshape((-1, self.n_x, self.n_u), order="F"),
+            B_minus_bar.reshape((-1, self.n_x, self.n_u), order="F"),
+            F_bar.reshape((-1, self.n_x, self.n_p), order="F"),
+            r_bar.reshape((-1, self.n_x), order="F"),
+        )
 
     def _check_convergence(self, new_objective, old_objective) -> bool:
         """
