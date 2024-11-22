@@ -138,14 +138,12 @@ class SpaceshipPlanner:
         for iteration in range(max_iterations):
             print(f"Iteration {iteration + 1}")
             self._convexification()
-            objective = self._get_objective()
-            self.old_objective = objective.value
-            self.problem = cvx.Problem(objective, self._get_constraints())
+            # self.old_objective = self.problem.objective.value
             try:
                 error = self.problem.solve(verbose=self.params.verbose_solver, solver=self.params.solver)
                 print(f"Iteration {iteration + 1} error: {error}")
-                print(f"Iteration {iteration + 1} objective value: {objective.value}")
-                self.new_objective = objective.value
+                print(f"Iteration {iteration + 1} objective value: {self.problem.objective.value}")
+                # self.new_objective = self.problem.objective.value
             except cvx.SolverError:
                 print(f"SolverError: {self.params.solver} failed to solve the problem.")
 
