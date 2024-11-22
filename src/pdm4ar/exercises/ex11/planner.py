@@ -26,7 +26,7 @@ class SolverParameters:
 
     # Cvxpy solver parameters
     solver: str = "ECOS"  # specify solver to use
-    verbose_solver: bool = False  # if True, the optimization steps are shown
+    verbose_solver: bool = True  # if True, the optimization steps are shown
     max_iterations: int = 100  # max algorithm iterations
 
     # SCVX parameters (Add paper reference)
@@ -184,6 +184,7 @@ class SpaceshipPlanner:
         K = self.params.K
 
         X = np.zeros((self.spaceship.n_x, K))
+        X[7, :] = self.sg.m
         U = np.zeros((self.spaceship.n_u, K))
         p = np.zeros((self.spaceship.n_p))
 
@@ -203,8 +204,8 @@ class SpaceshipPlanner:
         """
         variables = {
             "X": cvx.Variable((self.spaceship.n_x, self.params.K), name="X"),
-            "U": cvx.Variable((self.spaceship.n_u, self.params.K), name="U"),
-            "p": cvx.Variable(self.spaceship.n_p, name="p", integer=True),
+            "U": cvx.Variable((self.spaceship.n_u, self.params.K), name="U"),  # 0: thrust, 1: ddelta
+            "p": cvx.Variable(self.spaceship.n_p, name="p", integer=True),  # final time
             "v_dyn": cvx.Variable((self.spaceship.n_x, self.params.K - 1), name="v_dyn"),
             # "delta": cvx.Variable(nonneg=True, name="delta"),
         }
@@ -323,10 +324,6 @@ class SpaceshipPlanner:
             for i in range(1, self.params.K)
         ]
 
-        constraints += [
-            cvx.norm(self.variables["X"][:6, i] - self.problem_parameters["goal_config"]) <= self.params.stop_crit
-            for i in range(self.variables["p"].value, self.params.K)
-        ]
         return constraints
 
     def _get_objective(self) -> Union[cvx.Minimize, cvx.Maximize]:
@@ -335,8 +332,8 @@ class SpaceshipPlanner:
         """
         # TODO
         # Example objective
-        objective = self.params.weight_p @ self.variables["p"]
-
+        # objective = self.params.weight_p @ self.variables["p"]
+        objective = cvx.sum(cvx.norm(self.variables["U"][0], 1)) + cvx.norm(self.variables["v_dyn"], "fro")
         return cvx.Minimize(objective)
 
     def _convexification(self):
