@@ -47,7 +47,7 @@ class SpaceshipDyn:
         f[2] = self.x[5]
         f[3] = 1 / self.x[7] * spy.cos(self.x[6]) * self.u[0] + self.x[5] * self.x[4]
         f[4] = 1 / self.x[7] * spy.sin(self.x[6]) * self.u[0] - self.x[5] * self.x[3]
-        f[5] = -self.sg.l_r / self.sg.Iz * spy.sin(self.x[6]) * self.u[0]
+        f[5] = -(self.sg.l_r / self.sg.Iz) * spy.sin(self.x[6]) * self.u[0]
         f[6] = self.u[1]
         f[7] = -1 * self.u[0] * self.sp.C_T
 

@@ -77,7 +77,6 @@ class SpaceshipAgent(Agent):
         #
         # TODO: Implement Compute Initial Trajectory
         #
-        self.planner.compute_trajectory(self.init_state, self.goal_state)
 
         self.cmds_plan, self.state_traj = self.planner.compute_trajectory(self.init_state, self.goal_state)
 

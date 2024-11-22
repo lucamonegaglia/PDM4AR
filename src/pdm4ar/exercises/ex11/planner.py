@@ -138,12 +138,13 @@ class SpaceshipPlanner:
         for iteration in range(max_iterations):
             print(f"Iteration {iteration + 1}")
             self._convexification()
-            # self.old_objective = self.problem.objective.value
+            if iteration != 0:
+                self.old_objective = self.problem.objective.value
             try:
                 error = self.problem.solve(verbose=self.params.verbose_solver, solver=self.params.solver)
                 print(f"Iteration {iteration + 1} error: {error}")
                 print(f"Iteration {iteration + 1} objective value: {self.problem.objective.value}")
-                # self.new_objective = self.problem.objective.value
+                self.new_objective = self.problem.objective.value
             except cvx.SolverError:
                 print(f"SolverError: {self.params.solver} failed to solve the problem.")
 
@@ -165,11 +166,11 @@ class SpaceshipPlanner:
             self.U_bar = self.variables["U"].value
             self.p_bar = self.variables["p"].value
 
-            if self._check_convergence():
+            if iteration != 0 and self._check_convergence():
                 break
         # Example data: sequence from array
         mycmds, mystates = self._extract_seq_from_array(
-            tuple(range(self.params.K)), self.U_bar[0], self.U_bar[1], self.X_bar
+            tuple(range(self.params.K)), self.U_bar[0], self.U_bar[1], self.X_bar.T
         )
 
         return mycmds, mystates
@@ -203,7 +204,7 @@ class SpaceshipPlanner:
         variables = {
             "X": cvx.Variable((self.spaceship.n_x, self.params.K), name="X"),
             "U": cvx.Variable((self.spaceship.n_u, self.params.K), name="U"),  # 0: thrust, 1: ddelta
-            "p": cvx.Variable(self.spaceship.n_p, name="p", integer=True),  # final time
+            "p": cvx.Variable(self.spaceship.n_p, name="p"),  # final time
             "v_dyn": cvx.Variable((self.spaceship.n_x, self.params.K - 1), name="v_dyn"),
             # "delta": cvx.Variable(nonneg=True, name="delta"),
         }
@@ -307,6 +308,8 @@ class SpaceshipPlanner:
             # Missing dynamics constraints
             # Should we add 39c,39d,39e?
             # Are 39f, 39d already in here?
+            # add p >= 0
+            self.variables["p"] >= 0,
         ]
 
         # Dynamic constraints
@@ -331,7 +334,9 @@ class SpaceshipPlanner:
         # TODO
         # Example objective
         # objective = self.params.weight_p @ self.variables["p"]
-        objective = cvx.sum(cvx.norm(self.variables["U"][0], 1)) + cvx.norm(self.variables["v_dyn"], "fro")
+        objective = cvx.sum(cvx.norm(self.variables["U"][0], 1)) + 100 * cvx.norm(self.variables["v_dyn"], "fro")
+        # add the final time
+        objective += self.params.weight_p @ self.variables["p"]
         return cvx.Minimize(objective)
 
     def _convexification(self):
@@ -346,15 +351,17 @@ class SpaceshipPlanner:
             self.X_bar, self.U_bar, self.p_bar
         )
 
+        tempA = A_bar[:, 0].reshape((8, 8), order="F")
+
         self.problem_parameters["init_state"].value = self.X_bar[:, 0]
         self.problem_parameters["goal_config"].value = self.goal_state.as_ndarray()
         # TODO populate other problem parameters + function is not modifying anything
         return (
-            A_bar.reshape((-1, self.n_x, self.n_x), order="F"),
-            B_plus_bar.reshape((-1, self.n_x, self.n_u), order="F"),
-            B_minus_bar.reshape((-1, self.n_x, self.n_u), order="F"),
-            F_bar.reshape((-1, self.n_x, self.n_p), order="F"),
-            r_bar.reshape((-1, self.n_x), order="F"),
+            A_bar.T.reshape((-1, self.n_x, self.n_x), order="F"),
+            B_plus_bar.T.reshape((-1, self.n_x, self.n_u), order="F"),
+            B_minus_bar.T.reshape((-1, self.n_x, self.n_u), order="F"),
+            F_bar.T.reshape((-1, self.n_x, self.n_p), order="F"),
+            r_bar.T.reshape((-1, self.n_x), order="F"),
         )
 
     def _check_convergence(self) -> bool:
@@ -388,9 +395,12 @@ class SpaceshipPlanner:
             Command and state sequences.
         """
         # Validate inputs
-        assert (
-            len(ts) == F.shape[0] == ddelta.shape[0] == npstates.shape[0]
-        ), "All inputs must have the same length as the number of timestamps."
+        # assert (
+        #     len(ts) == F.shape[0] == ddelta.shape[0] == npstates.shape[0]
+        # ), "All inputs must have the same length as the number of timestamps."
+        assert len(ts) == F.shape[0], "Length of ts must match the number of rows in F."
+        assert len(ts) == ddelta.shape[0], "Length of ts must match the number of rows in ddelta."
+        assert len(ts) == npstates.shape[0], "Length of ts must match the number of rows in npstates."
 
         # Create the command sequence
         cmds_list = [SpaceshipCommands(f, dd) for f, dd in zip(F, ddelta)]
