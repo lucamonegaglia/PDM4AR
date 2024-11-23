@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+from mimetypes import init
 from typing import Sequence
 
 from dg_commons import DgSampledSequence, PlayerName
@@ -70,9 +71,16 @@ class SpaceshipAgent(Agent):
         self.myname = init_sim_obs.my_name
         self.sg = init_sim_obs.model_geometry
         self.sp = init_sim_obs.model_params
-        self.planner = SpaceshipPlanner(planets=self.planets, satellites=self.satellites, sg=self.sg, sp=self.sp)
         assert isinstance(init_sim_obs.goal, SpaceshipTarget | DockingTarget)
         self.goal_state = init_sim_obs.goal.target
+        self.planner = SpaceshipPlanner(
+            planets=self.planets,
+            satellites=self.satellites,
+            sg=self.sg,
+            sp=self.sp,
+            goal_state=self.goal_state,
+            init_state=self.init_state,
+        )
 
         #
         # TODO: Implement Compute Initial Trajectory

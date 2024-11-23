@@ -84,6 +84,8 @@ class SpaceshipPlanner:
         satellites: dict[PlayerName, SatelliteParams],
         sg: SpaceshipGeometry,
         sp: SpaceshipParameters,
+        init_state: SpaceshipState,
+        goal_state: DynObstacleState,
     ):
         """
         Pass environment information to the planner.
@@ -107,8 +109,11 @@ class SpaceshipPlanner:
         self.integrator = FirstOrderHold(self.spaceship, self.params.K, self.params.N_sub)
 
         # TODO DEBUG (Temporary goal and init state, used in convex)
-        self.goal_state = DynObstacleState(0, 0, 0, 0, 0, 0)
-        self.init_state = SpaceshipState(0, 0, 0, 0, 0, 0, 0, 2)
+        # self.goal_state = DynObstacleState(0, 0, 0, 0, 0, 0)
+        # self.init_state = SpaceshipState(0, 0, 0, 0, 0, 0, 0, 2)
+
+        self.init_state = init_state
+        self.goal_state = goal_state
 
         # Problem Parameters
         self.problem_parameters = self._get_problem_parameters()
@@ -241,7 +246,11 @@ class SpaceshipPlanner:
         problem_parameters = {
             "init_state": cvx.Parameter(self.spaceship.n_x, name="init_state"),
             "goal_config": cvx.Parameter(6, name="goal_config"),
-            # TODO
+            "A_bar": cvx.Parameter((self.n_x * self.n_x, self.params.K - 1), name="A_bar"),  # shape 64 x 49
+            "B_plus_bar": cvx.Parameter((self.n_x * self.n_u, self.params.K - 1), name="B_plus_bar"),  # shape 16 x 49
+            "B_minus_bar": cvx.Parameter((self.n_x * self.n_u, self.params.K - 1), name="B_minus_bar"),  # shape 16 x 49
+            "F_bar": cvx.Parameter((self.n_x * self.n_p, self.params.K - 1), name="F_bar"),  # shape 8 x 49
+            "r_bar": cvx.Parameter((self.n_x, self.params.K - 1), name="r_bar"),  # shape 8 x 49
         }
 
         return problem_parameters
@@ -280,8 +289,14 @@ class SpaceshipPlanner:
         vy_goal = self.problem_parameters["goal_config"][4]
         v_goal = cvx.vstack([vx_goal, vy_goal])
 
-        A, B_plus, B_minus, F, r = self._convexification()
+        self._convexification()
+        A = self.problem_parameters["A_bar"].T
+        B_plus = self.problem_parameters["B_plus_bar"].T
+        B_minus = self.problem_parameters["B_minus_bar"].T
+        F = self.problem_parameters["F_bar"].T
+        r = self.problem_parameters["r_bar"].T
         X_k_plus_1 = self.variables["X"][:, 1 : self.params.K]
+
         print(f"Dimensions of X_k_plus_1: {X_k_plus_1.shape}")
         print("A ", A.shape)
         print("X_K ", self.variables["X"][:, 0 : self.params.K - 1].shape)
@@ -339,10 +354,10 @@ class SpaceshipPlanner:
         # TODO vettorizzare usando cvx.matmul se si riesce, ma si lamenta perchè non sa gestire 3 dimensioni
         constraints += [
             self.variables["X"][:, i]
-            == cvx.matmul(A[i - 1], self.variables["X"][:, i - 1].T)
-            + cvx.matmul(B_plus[i - 1], self.variables["U"][:, i].T)
-            + cvx.matmul(B_minus[i - 1], self.variables["U"][:, i - 1].T)
-            + cvx.matmul(F[i - 1], self.variables["p"].T)
+            == cvx.matmul(A[i - 1].reshape((self.n_x, self.n_x), order="F"), self.variables["X"][:, i - 1].T)
+            + cvx.matmul(B_plus[i - 1].reshape((self.n_x, self.n_u), order="F"), self.variables["U"][:, i].T)
+            + cvx.matmul(B_minus[i - 1].reshape((self.n_x, self.n_u), order="F"), self.variables["U"][:, i - 1].T)
+            + cvx.matmul(F[i - 1].reshape((self.n_x, self.n_p), order="F"), self.variables["p"].T)
             + r[i - 1]
             + self.variables["v_dyn"][:, i - 1]
             for i in range(1, self.params.K)
@@ -377,18 +392,23 @@ class SpaceshipPlanner:
             self.X_bar, self.U_bar, self.p_bar
         )
 
-        tempA = A_bar[:, 0].reshape((8, 8), order="F")
+        # tempA = A_bar[:, 0].reshape((8, 8), order="F")
 
         self.problem_parameters["init_state"].value = self.init_state.as_ndarray()
         self.problem_parameters["goal_config"].value = self.goal_state.as_ndarray()
         # TODO populate other problem parameters + function is not modifying anything
-        return (
-            A_bar.T.reshape((-1, self.n_x, self.n_x), order="F"),
-            B_plus_bar.T.reshape((-1, self.n_x, self.n_u), order="F"),
-            B_minus_bar.T.reshape((-1, self.n_x, self.n_u), order="F"),
-            F_bar.T.reshape((-1, self.n_x, self.n_p), order="F"),
-            r_bar.T.reshape((-1, self.n_x), order="F"),
-        )
+        # return (
+        #     A_bar.T.reshape((-1, self.n_x, self.n_x), order="F"),
+        #     B_plus_bar.T.reshape((-1, self.n_x, self.n_u), order="F"),
+        #     B_minus_bar.T.reshape((-1, self.n_x, self.n_u), order="F"),
+        #     F_bar.T.reshape((-1, self.n_x, self.n_p), order="F"),
+        #     r_bar.T.reshape((-1, self.n_x), order="F"),
+        # )
+        self.problem_parameters["A_bar"].value = A_bar  # .T.reshape((-1, self.n_x, self.n_x), order="F")
+        self.problem_parameters["B_plus_bar"].value = B_plus_bar  # .T.reshape((-1, self.n_x, self.n_u), order="F")
+        self.problem_parameters["B_minus_bar"].value = B_minus_bar  # .T.reshape((-1, self.n_x, self.n_u), order="F")
+        self.problem_parameters["F_bar"].value = F_bar  # .T.reshape((-1, self.n_x, self.n_p), order="F")
+        self.problem_parameters["r_bar"].value = r_bar  # .T.reshape((-1, self.n_x), order="F")
 
     def _check_convergence(self) -> bool:
         """
