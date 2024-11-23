@@ -15,8 +15,12 @@ from dg_commons.sim.models.spaceship_structures import (
 
 from pdm4ar.exercises.ex11.discretization import *
 
-# TODO reimport this
 from pdm4ar.exercises_def.ex11.utils_params import PlanetParams, SatelliteParams
+
+from matplotlib import pyplot as plt
+import matplotlib
+
+matplotlib.use("Agg")  # Set the backend to 'Agg' for non-GUI use
 
 
 @dataclass(frozen=True)
@@ -144,10 +148,17 @@ class SpaceshipPlanner:
         # Initialize state and control trajectories
         self.X_bar, self.U_bar, self.p_bar = self.initial_guess()
 
+        # used for plotting only
+        self.v_dyn = np.zeros((self.spaceship.n_x, self.params.K - 1))
+
         max_iterations = self.params.max_iterations
+
         for iteration in range(max_iterations):
             print(f"Iteration {iteration + 1}")
             self._convexification()
+            # plot before solving
+            self.plot_solver_results(iteration)
+
             if iteration != 0:
                 self.old_objective = self.problem.objective.value
             try:
@@ -188,17 +199,65 @@ class SpaceshipPlanner:
             self.U_bar = self.variables["U"].value
             self.p_bar = self.variables["p"].value
 
-            # DEBUG ONLY
-            debug_v_dyn = self.variables["v_dyn"].value
+            # used for debug only
+            self.v_dyn = self.variables["v_dyn"].value
 
             if iteration != 0 and self._check_convergence():
                 break
+
+        # last plot
+        self.plot_solver_results("final")
+
         # Example data: sequence from array
         mycmds, mystates = self._extract_seq_from_array(
             tuple(range(self.params.K)), self.U_bar[0], self.U_bar[1], self.X_bar.T
         )
 
         return mycmds, mystates
+
+    def plot_solver_results(self, iteration):
+        fig, axs = plt.subplots(3, 2, figsize=(10, 15))
+
+        # Plot position trajectory
+        # Plot x position trajectory
+        axs[0][0].plot(self.X_bar[0, :].T)
+        axs[0][0].set_title("X Position Trajectory")
+        axs[0][0].set_xlabel("Step")
+        axs[0][0].set_ylabel("X Position")
+
+        # Plot y position trajectory
+        axs[0][1].plot(self.X_bar[1, :].T)
+        axs[0][1].set_title("Y Position Trajectory")
+        axs[0][1].set_xlabel("Step")
+        axs[0][1].set_ylabel("Y Position")
+
+        # Plot vx velocity trajectory
+        axs[1][0].plot(self.X_bar[2, :].T)
+        axs[1][0].set_title("VX Velocity Trajectory")
+        axs[1][0].set_xlabel("Step")
+        axs[1][0].set_ylabel("VX Velocity")
+
+        # Plot vy velocity trajectory
+        axs[1][1].plot(self.X_bar[3, :].T)
+        axs[1][1].set_title("VY Velocity Trajectory")
+        axs[1][1].set_xlabel("Step")
+        axs[1][1].set_ylabel("VY Velocity")
+
+        # Plot U
+        axs[2][0].plot(self.U_bar.T)
+        axs[2][0].set_title("U")
+        axs[2][0].set_xlabel("Step")
+        axs[2][0].set_ylabel("U")
+
+        # Plot vdyn
+        axs[2][1].plot(self.v_dyn)
+        axs[2][1].set_title("VDYN")
+        axs[2][1].set_xlabel("Step")
+        axs[2][1].set_ylabel("VDYN")
+
+        plt.tight_layout()
+        plt.savefig(f"src/pdm4ar/exercises/ex11/plot{iteration}.png")
+        plt.close()
 
     def initial_guess(self) -> tuple[NDArray, NDArray, NDArray]:
         """
@@ -464,46 +523,56 @@ class Tester:
     Class for testing the planner.
     """
 
-    def __init__(self, planner, integrator):
+    def __init__(self, planner):
         self.planner = planner
-        self.integrator = integrator
-        self.check_dynamics(self.planner, self.integrator)
 
-    def check_dynamics(self, planner, integrator):
+    def check_dynamics(self):
         """
         Check the dynamics between integration of A_bar, B_minus, B_plus, F_bar, r_bar and the result of
         """
-        X_bar, U_bar, p_bar = planner.initial_guess()
+        # X_bar, U_bar, p_bar = planner.initial_guess()
+        U_bar = np.random.randint(-2, 2, (2, self.planner.params.K))
+        p_bar = np.random.randint(0, 10, (1))
+        x0 = np.random.rand(8)
+        X_integrated_ground_truth = self.planner.integrator.integrate_nonlinear_full(x0, U_bar, p_bar)
+
+        self.planner.X_bar = X_integrated_ground_truth
+        self.planner.U_bar = U_bar
+        self.planner.p_bar = p_bar
+
+        print(f"X_integrated_gt shape: {X_integrated_ground_truth.shape}")
+        print(f"U_bar shape: {U_bar.shape}")
+        print(f"p_bar shape: {p_bar.shape}")
+
         A_bar, B_minus, B_plus, F_bar, r_bar = planner._convexification()
-        x0 = X_bar[:, 0]
-        X_integrated_ground_truth = integrator.integrate_nonlinear_full(x0, U_bar, p_bar)
+        X_res = np.zeros_like(X_integrated_ground_truth)
+        X_res[:, 0] = X_integrated_ground_truth[:, 0]
 
-        X_res = np.zeros_like(X_bar)
-        X_res[:, 0] = X_bar[:, 0]
-
-        for k in range(X_bar.shape[1] - 1):
+        for k in range(X_integrated_ground_truth.shape[1] - 1):
             X_res[:, k + 1] = (
                 A_bar[k] @ X_res[:, k]
                 + B_minus[k] @ U_bar[:, k]
                 + B_plus[k] @ U_bar[:, k + 1]
-                + (F_bar[k] * p_bar).reshape(-1)
+                + (F_bar[k] * p_bar)
                 + r_bar[k]
             )
             # print(X_res[:, k + 1])
-            if X_res[7, k + 1] != 2:
-                print(f"A_bar term: {A_bar[k] @ X_res[:, k]}")
-                print(f"B_minus term: {B_minus[k] @ U_bar[:, k]}")
-                print(f"B_plus term: {B_plus[k] @ U_bar[:, k + 1]}")
-                print(f"F_bar term: {(F_bar[k] * p_bar).reshape(-1)}")
-                print(f"r_bar term: {r_bar[k]}")
+            # if X_res[7, k + 1] != 2:
+            #     print(f"A_bar term: {A_bar[k] @ X_res[:, k]}")
+            #     print(f"B_minus term: {B_minus[k] @ U_bar[:, k]}")
+            #     print(f"B_plus term: {B_plus[k] @ U_bar[:, k + 1]}")
+            #     print(f"F_bar term: {(F_bar[k] * p_bar).reshape(-1)}")
+            #     print(f"r_bar term: {r_bar[k]}")
 
         if not np.allclose(X_res, X_integrated_ground_truth):
             print("Dynamics are not correct.")
-            indices = np.where(np.any(X_res != X_integrated_ground_truth, axis=0))[0]
+            tol = 0.001
+            indices = np.where(np.any(X_res - X_integrated_ground_truth >= tol, axis=1))[0]
             print(f"indices: {indices}")
             for i in indices:
-                print(f"X_res at {i}: {X_res[:, i]}")
-                print(f"X_integrated_GT at {i}: {X_integrated_ground_truth[:,i]}")
+                # print(f"X_res at {i}: {X_res[:, i]}")
+                # print(f"X_integrated_GT at {i}: {X_integrated_ground_truth[:,i]}")
+                print(f"Error at {i}: {X_res[:, i] - X_integrated_ground_truth[:, i]}")
         else:
             print("Dynamics are correct.")
 
@@ -538,4 +607,7 @@ if __name__ == "__main__":
     planner = SpaceshipPlanner(planets, satellites, sg, sp)
     init_state = SpaceshipState(0, 0, 0, 0, 0, 0, 0, 2)
     goal_state = DynObstacleState(10, 10, 0.1, 0.1, 0.1, 0)
-    mycmds, mystates = planner.compute_trajectory(init_state, goal_state)
+
+    tester = Tester(planner)
+    tester.check_dynamics()
+    # mycmds, mystates = planner.compute_trajectory(init_state, goal_state)
