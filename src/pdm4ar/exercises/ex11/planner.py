@@ -117,8 +117,11 @@ class SpaceshipPlanner:
 
         # Problem Parameters
         self.problem_parameters = self._get_problem_parameters()
+        # assign trust region radius
+        self.problem_parameters["radius_trust_region"].value = self.params.tr_radius
 
-        self.X_bar, self.U_bar, self.p_bar = self.initial_guess()
+        self.initial_guess()  # update directly the problem parameters
+
         # Variables
         self.variables = self._get_variables()
 
@@ -142,7 +145,7 @@ class SpaceshipPlanner:
         self.goal_state = goal_state
 
         # Initialize state and control trajectories
-        self.X_bar, self.U_bar, self.p_bar = self.initial_guess()
+        self.initial_guess()
 
         max_iterations = self.params.max_iterations
         for iteration in range(max_iterations):
@@ -183,19 +186,45 @@ class SpaceshipPlanner:
             else:
                 print("Solver did not converge. Check formulation and solver settings.")
 
-            # Update the trajectories with the new solution
-            self.X_bar = self.variables["X"].value
-            self.U_bar = self.variables["U"].value
-            self.p_bar = self.variables["p"].value
+            # compute flow_map
+            flow_map_pre_solver = self.integrator.integrate_nonlinear_piecewise(
+                self.problem_parameters["X_bar"].value,
+                self.problem_parameters["U_bar"].value,
+                self.problem_parameters["p_bar"].value,
+            )
+            delta_pre_solver = np.linalg.norm(flow_map_pre_solver - self.problem_parameters["X_bar"].value)
+            objective_pre_solver_non_discretized = self._get_non_discretize_objective(delta_pre_solver)
+
+            flow_map_post_solver = self.integrator.integrate_nonlinear_piecewise(
+                self.variables["X"].value, self.variables["U"].value, self.variables["p"].value
+            )
+            delta_post_solver = np.linalg.norm(flow_map_post_solver - self.variables["X"].value)
+            objective_post_solver_non_discretized = self._get_non_discretize_objective(delta_post_solver)
+
+            rho = (objective_pre_solver_non_discretized - objective_post_solver_non_discretized) / (
+                objective_pre_solver_non_discretized - self.new_objective
+            )
+
+            if rho >= self.params.rho_0:
+                self.problem_parameters["X_bar"].value = self.variables["X"].value
+                self.problem_parameters["U_bar"].value = self.variables["U"].value
+                self.problem_parameters["p_bar"].value = self.variables["p"].value
+
+            # update trust region
+            self._update_trust_region(rho)
 
             # DEBUG ONLY
             debug_v_dyn = self.variables["v_dyn"].value
 
-            if iteration != 0 and self._check_convergence():
+            if iteration != 0 and self._check_convergence(objective_pre_solver_non_discretized):
                 break
         # Example data: sequence from array
         mycmds, mystates = self._extract_seq_from_array(
-            tuple(range(self.params.K)), self.U_bar[0], self.U_bar[1], self.X_bar.T
+            # tuple(range(self.params.K)), self.U_bar[0], self.U_bar[1], self.X_bar.T
+            tuple(range(self.params.K)),
+            self.problem_parameters["U_bar"].value[0],
+            self.problem_parameters["U_bar"].value[1],
+            self.problem_parameters["X_bar"].T,
         )
 
         return mycmds, mystates
@@ -216,7 +245,10 @@ class SpaceshipPlanner:
         U = np.zeros((self.spaceship.n_u, K))
         p = np.ones((self.spaceship.n_p))
 
-        return X, U, p
+        # update problem parameters
+        self.problem_parameters["X_bar"].value = X
+        self.problem_parameters["U_bar"].value = U
+        self.problem_parameters["p_bar"].value = p
 
     def _set_goal(self):
         """
@@ -251,6 +283,10 @@ class SpaceshipPlanner:
             "B_minus_bar": cvx.Parameter((self.n_x * self.n_u, self.params.K - 1), name="B_minus_bar"),  # shape 16 x 49
             "F_bar": cvx.Parameter((self.n_x * self.n_p, self.params.K - 1), name="F_bar"),  # shape 8 x 49
             "r_bar": cvx.Parameter((self.n_x, self.params.K - 1), name="r_bar"),  # shape 8 x 49
+            "radius_trust_region": cvx.Parameter(name="radius_trust_region"),
+            "X_bar": cvx.Parameter((self.n_x, self.params.K), name="X_bar"),
+            "U_bar": cvx.Parameter((self.n_u, self.params.K), name="U_bar"),
+            "p_bar": cvx.Parameter(self.n_p, name="p_bar"),
         }
 
         return problem_parameters
@@ -314,6 +350,10 @@ class SpaceshipPlanner:
         # print("B_minus * uk", np.matmul(B_minus, self.variables["U"][:, 0 : self.params.K - 1].T).shape)
         # print("F * p", np.matmul(F, self.variables["p"].T).shape)
 
+        deltax = self.variables["X"] - self.problem_parameters["X_bar"]
+        deltau = self.variables["U"] - self.problem_parameters["U_bar"]
+        deltap = self.variables["p"] - self.problem_parameters["p_bar"]
+
         constraints = [
             # Initial state costraint (WAS ALREADY IN THE EXAMPLE)
             self.variables["X"][:, 0] - self.problem_parameters["init_state"] == 0,
@@ -348,6 +388,12 @@ class SpaceshipPlanner:
             # Should we add 39c,39d,39e?
             # Are 39f, 39d already in here?
             self.variables["p"] >= 0,
+            # add constraints for trust region
+            cvx.norm(deltax, 1)
+            + cvx.norm(deltau, 1)
+            + cvx.norm(deltap, 1)
+            - self.problem_parameters["radius_trust_region"]
+            <= 0,
         ]
 
         # Dynamic constraints
@@ -379,6 +425,11 @@ class SpaceshipPlanner:
         objective += self.params.weight_p @ self.variables["p"]
         return cvx.Minimize(objective)
 
+    def _get_non_discretize_objective(self, delta):
+        objective = cvx.norm(1 / self.params.K * self.variables["U"][0].value, 1) + 10000 * cvx.norm(delta, 1)
+        objective += self.params.weight_p @ self.variables["p"].value
+        return objective.value
+
     def _convexification(self):
         """
         Perform convexification step, i.e. Linearization and Discretization
@@ -389,7 +440,9 @@ class SpaceshipPlanner:
         # A_bar, B_bar, F_bar, r_bar = self.integrator.calculate_discretization(self.X_bar, self.U_bar, self.p_bar)
         # FOH
         A_bar, B_plus_bar, B_minus_bar, F_bar, r_bar = self.integrator.calculate_discretization(
-            self.X_bar, self.U_bar, self.p_bar
+            self.problem_parameters["X_bar"].value,
+            self.problem_parameters["U_bar"].value,
+            self.problem_parameters["p_bar"].value,
         )
 
         # tempA = A_bar[:, 0].reshape((8, 8), order="F")
@@ -410,18 +463,28 @@ class SpaceshipPlanner:
         self.problem_parameters["F_bar"].value = F_bar  # .T.reshape((-1, self.n_x, self.n_p), order="F")
         self.problem_parameters["r_bar"].value = r_bar  # .T.reshape((-1, self.n_x), order="F")
 
-    def _check_convergence(self) -> bool:
+    def _check_convergence(self, objective_pre_solver_non_discretized: float) -> bool:
         """
         Check convergence of SCvx.
         """
-        return abs(self.new_objective - self.old_objective) < self.params.stop_crit * abs(self.old_objective)
+        return abs(self.new_objective - objective_pre_solver_non_discretized) < self.params.stop_crit * abs(
+            objective_pre_solver_non_discretized
+        )
 
-    def _update_trust_region(self):
+    def _update_trust_region(self, rho: float):
         """
         Update trust region radius.
         """
-        # TODO
-        pass
+        if rho < self.params.rho_1:
+            self.problem_parameters["radius_trust_region"].value = max(
+                self.params.min_tr_radius, self.problem_parameters["radius_trust_region"].value / self.params.alpha
+            )
+        elif rho >= self.params.rho_1 and rho < self.params.rho_2:
+            pass
+        else:
+            self.problem_parameters["radius_trust_region"].value = min(
+                self.params.max_tr_radius, self.params.beta * self.problem_parameters["radius_trust_region"].value
+            )
 
     @staticmethod
     def _extract_seq_from_array(
