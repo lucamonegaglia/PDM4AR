@@ -103,8 +103,12 @@ class SpaceshipPlanner:
         # Discretization Method
         # self.integrator = ZeroOrderHold(self.Spaceship, self.params.K, self.params.N_sub)
         self.integrator = FirstOrderHold(self.spaceship, self.params.K, self.params.N_sub)
-        self.problem_parameters = self._get_problem_parameters()
 
+        # TODO DEBUG (Temporary goal and init state, used in convex)
+        self.goal_state = DynObstacleState(0, 0, 0, 0, 0, 0)
+        self.init_state = SpaceshipState(0, 0, 0, 0, 0, 0, 0, 2)
+
+        self.problem_parameters = self._get_problem_parameters()
         self.X_bar, self.U_bar, self.p_bar = self.initial_guess()
         # Variables
         self.variables = self._get_variables()
@@ -112,9 +116,6 @@ class SpaceshipPlanner:
         # Problem Parameters
         self.problem_parameters = self._get_problem_parameters()
 
-        # TODO DEBUG (Temporary goal and init state, used in convex)
-        self.goal_state = DynObstacleState(0, 0, 0, 0, 0, 0)
-        self.init_state = SpaceshipState(0, 0, 0, 0, 0, 0, 0, 2)
         # Constraints
         constraints = self._get_constraints()
 
@@ -149,7 +150,10 @@ class SpaceshipPlanner:
                 self.new_objective = self.problem.objective.value
             except cvx.SolverError:
                 print(f"SolverError: {self.params.solver} failed to solve the problem.")
-
+            # Check for constraint violations
+            # for constraint in self.problem.constraints:
+            #    if constraint.dual_value is not None and np.any(constraint.dual_value < 0):
+            #        print(f"Violated Constraint: {constraint}, Value: {constraint.dual_value}")
             # Check the solution status
             if self.problem.status == cvx.OPTIMAL:
                 print("Optimal solution found.")
@@ -194,7 +198,7 @@ class SpaceshipPlanner:
         X[7, :] = self.sg.m
 
         U = np.zeros((self.spaceship.n_u, K))
-        p = np.zeros((self.spaceship.n_p))
+        p = np.ones((self.spaceship.n_p))
 
         return X, U, p
 
@@ -286,34 +290,34 @@ class SpaceshipPlanner:
 
         constraints = [
             # Initial state costraint (WAS ALREADY IN THE EXAMPLE)
-            self.variables["X"][:, 0] == self.problem_parameters["init_state"],
+            self.variables["X"][:, 0] - self.problem_parameters["init_state"] == 0,
             # Input constraints
-            self.variables["U"][:, 0] == np.zeros(self.spaceship.n_u),
-            self.variables["U"][:, self.params.K - 1] == np.zeros(self.spaceship.n_u),
+            self.variables["U"][:, 0] - np.zeros(self.spaceship.n_u) == 0,
+            self.variables["U"][:, self.params.K - 1] - np.zeros(self.spaceship.n_u) == 0,
             # Needs to be close to the goal
-            cvx.norm(goal_coords - fin_coords) <= self.params.stop_crit,
+            cvx.norm(goal_coords - fin_coords) - self.params.stop_crit <= 0,
             # Orientation constraint
             # delta_1 >= self.variables["delta"],
             # delta_2 >= self.variables["delta"],
             # self.variables["delta"] <= self.params.stop_crit,
-            pose_fin - pose_goal <= self.params.stop_crit,
+            pose_fin - pose_goal - self.params.stop_crit <= 0,
             # Specified velocity constraint
-            cvx.norm(v_fin - v_goal) <= self.params.stop_crit,
+            cvx.norm(v_fin - v_goal) - self.params.stop_crit <= 0,
             # No collisions
             # TODO
             # Mass constraint
-            self.variables["X"][7, :] >= self.sg.m,
+            self.variables["X"][7, :] - self.sg.m >= 0,
             # Thrust constraint
-            self.variables["U"][0, :] >= self.sp.thrust_limits[0],
-            self.variables["U"][0] <= self.sp.thrust_limits[1],
+            self.variables["U"][0, :] - self.sp.thrust_limits[0] >= 0,
+            self.variables["U"][0] - self.sp.thrust_limits[1] <= 0,
             # Thruster angle costraint
-            self.variables["X"][6, :] >= self.sp.delta_limits[0],
-            self.variables["X"][6, :] <= self.sp.delta_limits[1],
+            self.variables["X"][6, :] - self.sp.delta_limits[0] >= 0,
+            self.variables["X"][6, :] - self.sp.delta_limits[1] <= 0,
             # Maximum time
             # TODO
             # Rate of change
-            self.variables["U"][1, :] >= self.sp.ddelta_limits[0],
-            self.variables["U"][1] <= self.sp.ddelta_limits[1],
+            self.variables["U"][1, :] - self.sp.ddelta_limits[0] >= 0,
+            self.variables["U"][1] - self.sp.ddelta_limits[1] <= 0,
             # Missing dynamics constraints
             # Should we add 39c,39d,39e?
             # Are 39f, 39d already in here?
@@ -343,7 +347,7 @@ class SpaceshipPlanner:
         # TODO
         # Example objective
         # objective = self.params.weight_p @ self.variables["p"]
-        objective = cvx.sum(cvx.norm(1 / self.params.K * self.variables["U"][0], 1)) + 10000 * cvx.norm(
+        objective = cvx.norm(1 / self.params.K * self.variables["U"][0], 1) + 10000 * cvx.norm(
             self.variables["v_dyn"], 1
         )
         # add the final time

@@ -50,7 +50,7 @@ class SpaceshipDyn:
         f[5] = -(self.sg.l_r / self.sg.Iz) * spy.sin(self.x[6]) * self.u[0]
         f[6] = self.u[1]
         f[7] = -1 * self.u[0] * self.sp.C_T
-        f = f * self.p[0]
+        # f = f * self.p[0]
         A = f.jacobian(self.x)
         B = f.jacobian(self.u)
         F = f.jacobian(self.p)
