@@ -14,6 +14,8 @@ from dg_commons.sim.models.spaceship_structures import (
 )
 
 from pdm4ar.exercises.ex11.discretization import *
+
+# TODO reimport this
 from pdm4ar.exercises_def.ex11.utils_params import PlanetParams, SatelliteParams
 
 
@@ -108,13 +110,12 @@ class SpaceshipPlanner:
         self.goal_state = DynObstacleState(0, 0, 0, 0, 0, 0)
         self.init_state = SpaceshipState(0, 0, 0, 0, 0, 0, 0, 2)
 
+        # Problem Parameters
         self.problem_parameters = self._get_problem_parameters()
+
         self.X_bar, self.U_bar, self.p_bar = self.initial_guess()
         # Variables
         self.variables = self._get_variables()
-
-        # Problem Parameters
-        self.problem_parameters = self._get_problem_parameters()
 
         # Constraints
         constraints = self._get_constraints()
@@ -131,6 +132,7 @@ class SpaceshipPlanner:
         """
         Compute a trajectory from init_state to goal_state.
         """
+        # overwrite previous (temporary) init and goal state
         self.init_state = init_state
         self.goal_state = goal_state
 
@@ -158,14 +160,23 @@ class SpaceshipPlanner:
             if self.problem.status == cvx.OPTIMAL:
                 print("Optimal solution found.")
             elif self.problem.status == cvx.INFEASIBLE:
-                print("Problem is infeasible.")
-            #    return None, None
+                print("Problem is infeasible. Check constraints or feasibility.")
             elif self.problem.status == cvx.UNBOUNDED:
-                print("Problem is unbounded.")
-            #    return None, None
+                print("Problem is unbounded. Check if constraints are missing.")
+            elif self.problem.status == cvx.OPTIMAL_INACCURATE:
+                print(
+                    "Solution is near-optimal but not accurate. Reason: Numerical instability, insufficient solver iterations, or precision issues.."
+                )
+            elif self.problem.status == cvx.INFEASIBLE_INACCURATE:
+                print(
+                    "Problem may be infeasible, but the solver could not confirm. Poor scaling, tight constraints, or solver limitations."
+                )
+            elif self.problem.status == cvx.UNBOUNDED_INACCURATE:
+                print("Problem may be unbounded, but the solver could not confirm. Add bounds or regularization.")
+            elif self.problem.status == cvx.USER_LIMIT:
+                print("Solver stopped due to user-defined iteration or time limits. Increase the limits.")
             else:
-                print("Solver did not converge.")
-            #    return None, None
+                print("Solver did not converge. Check formulation and solver settings.")
 
             # Update the trajectories with the new solution
             self.X_bar = self.variables["X"].value
@@ -186,7 +197,7 @@ class SpaceshipPlanner:
 
     def initial_guess(self) -> tuple[NDArray, NDArray, NDArray]:
         """
-        Define initial guess for SCvx.
+        returns X_bar, U_bar, p_bar initial guess for SCvx.
         """
         # TODO
         K = self.params.K
@@ -309,7 +320,7 @@ class SpaceshipPlanner:
             self.variables["X"][7, :] - self.sg.m >= 0,
             # Thrust constraint
             self.variables["U"][0, :] - self.sp.thrust_limits[0] >= 0,
-            self.variables["U"][0] - self.sp.thrust_limits[1] <= 0,
+            self.variables["U"][0, :] - self.sp.thrust_limits[1] <= 0,
             # Thruster angle costraint
             self.variables["X"][6, :] - self.sp.delta_limits[0] >= 0,
             self.variables["X"][6, :] - self.sp.delta_limits[1] <= 0,
@@ -317,11 +328,10 @@ class SpaceshipPlanner:
             # TODO
             # Rate of change
             self.variables["U"][1, :] - self.sp.ddelta_limits[0] >= 0,
-            self.variables["U"][1] - self.sp.ddelta_limits[1] <= 0,
+            self.variables["U"][1, :] - self.sp.ddelta_limits[1] <= 0,
             # Missing dynamics constraints
             # Should we add 39c,39d,39e?
             # Are 39f, 39d already in here?
-            # add p >= 0
             self.variables["p"] >= 0,
         ]
 
@@ -358,6 +368,7 @@ class SpaceshipPlanner:
         """
         Perform convexification step, i.e. Linearization and Discretization
         and populate Problem Parameters.
+        Returns A_bar, B_plus_bar, B_minus_bar, F_bar, r_bar from discretization around X_bar, U_bar, p.
         """
         # ZOH
         # A_bar, B_bar, F_bar, r_bar = self.integrator.calculate_discretization(self.X_bar, self.U_bar, self.p_bar)
@@ -426,6 +437,55 @@ class SpaceshipPlanner:
         mystates = DgSampledSequence[SpaceshipState](timestamps=ts, values=states)
 
         return mycmds, mystates
+
+
+class Tester:
+    """
+    Class for testing the planner.
+    """
+
+    def __init__(self, planner, integrator):
+        self.planner = planner
+        self.integrator = integrator
+        self.check_dynamics(self.planner, self.integrator)
+
+    def check_dynamics(self, planner, integrator):
+        """
+        Check the dynamics between integration of A_bar, B_minus, B_plus, F_bar, r_bar and the result of
+        """
+        X_bar, U_bar, p_bar = planner.initial_guess()
+        A_bar, B_minus, B_plus, F_bar, r_bar = planner._convexification()
+        x0 = X_bar[:, 0]
+        X_integrated_ground_truth = integrator.integrate_nonlinear_full(x0, U_bar, p_bar)
+
+        X_res = np.zeros_like(X_bar)
+        X_res[:, 0] = X_bar[:, 0]
+
+        for k in range(X_bar.shape[1] - 1):
+            X_res[:, k + 1] = (
+                A_bar[k] @ X_res[:, k]
+                + B_minus[k] @ U_bar[:, k]
+                + B_plus[k] @ U_bar[:, k + 1]
+                + (F_bar[k] * p_bar).reshape(-1)
+                + r_bar[k]
+            )
+            # print(X_res[:, k + 1])
+            if X_res[7, k + 1] != 2:
+                print(f"A_bar term: {A_bar[k] @ X_res[:, k]}")
+                print(f"B_minus term: {B_minus[k] @ U_bar[:, k]}")
+                print(f"B_plus term: {B_plus[k] @ U_bar[:, k + 1]}")
+                print(f"F_bar term: {(F_bar[k] * p_bar).reshape(-1)}")
+                print(f"r_bar term: {r_bar[k]}")
+
+        if not np.allclose(X_res, X_integrated_ground_truth):
+            print("Dynamics are not correct.")
+            indices = np.where(np.any(X_res != X_integrated_ground_truth, axis=0))[0]
+            print(f"indices: {indices}")
+            for i in indices:
+                print(f"X_res at {i}: {X_res[:, i]}")
+                print(f"X_integrated_GT at {i}: {X_integrated_ground_truth[:,i]}")
+        else:
+            print("Dynamics are correct.")
 
 
 # incompleto, non dovrebbe servire.
