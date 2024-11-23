@@ -103,6 +103,7 @@ class SpaceshipPlanner:
         # Discretization Method
         # self.integrator = ZeroOrderHold(self.Spaceship, self.params.K, self.params.N_sub)
         self.integrator = FirstOrderHold(self.spaceship, self.params.K, self.params.N_sub)
+        self.problem_parameters = self._get_problem_parameters()
 
         self.X_bar, self.U_bar, self.p_bar = self.initial_guess()
         # Variables
@@ -111,8 +112,9 @@ class SpaceshipPlanner:
         # Problem Parameters
         self.problem_parameters = self._get_problem_parameters()
 
-        # TODO DEBUG (FAKE GOAL, HAS TO BE DELETED)
-        self.goal_state = DynObstacleState(10, 10, 0.1, 0.1, 0.1, 0)
+        # TODO DEBUG (Temporary goal and init state, used in convex)
+        self.goal_state = DynObstacleState(0, 0, 0, 0, 0, 0)
+        self.init_state = SpaceshipState(0, 0, 0, 0, 0, 0, 0, 2)
         # Constraints
         constraints = self._get_constraints()
 
@@ -166,6 +168,9 @@ class SpaceshipPlanner:
             self.U_bar = self.variables["U"].value
             self.p_bar = self.variables["p"].value
 
+            # DEBUG ONLY
+            debug_v_dyn = self.variables["v_dyn"].value
+
             if iteration != 0 and self._check_convergence():
                 break
         # Example data: sequence from array
@@ -183,7 +188,11 @@ class SpaceshipPlanner:
         K = self.params.K
 
         X = np.zeros((self.spaceship.n_x, K))
+        # X[0, :] = self.problem_parameters["init_state"][0]
+        # X[1, :] = self.problem_parameters["init_state"][1]
+        # X[7, :] = self.problem_parameters["init_state"][7]
         X[7, :] = self.sg.m
+
         U = np.zeros((self.spaceship.n_u, K))
         p = np.zeros((self.spaceship.n_p))
 
@@ -334,7 +343,9 @@ class SpaceshipPlanner:
         # TODO
         # Example objective
         # objective = self.params.weight_p @ self.variables["p"]
-        objective = cvx.sum(cvx.norm(self.variables["U"][0], 1)) + 100 * cvx.norm(self.variables["v_dyn"], "fro")
+        objective = cvx.sum(cvx.norm(1 / self.params.K * self.variables["U"][0], 1)) + 10000 * cvx.norm(
+            self.variables["v_dyn"], 1
+        )
         # add the final time
         objective += self.params.weight_p @ self.variables["p"]
         return cvx.Minimize(objective)
@@ -353,7 +364,7 @@ class SpaceshipPlanner:
 
         tempA = A_bar[:, 0].reshape((8, 8), order="F")
 
-        self.problem_parameters["init_state"].value = self.X_bar[:, 0]
+        self.problem_parameters["init_state"].value = self.init_state.as_ndarray()
         self.problem_parameters["goal_config"].value = self.goal_state.as_ndarray()
         # TODO populate other problem parameters + function is not modifying anything
         return (
