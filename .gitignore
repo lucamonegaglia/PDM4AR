@@ -143,3 +143,6 @@ dmypy.json
 
 # Pyre type checker
 .pyre/
+
+# plots
+src/pdm4ar/exercises/ex11/plots/*
