@@ -160,7 +160,7 @@ class SpaceshipPlanner:
             print(f"Iteration {iteration + 1}")
             self._convexification()
             # plot before solving
-            self.plot_solver_results(iteration)
+            # self.plot_solver_results(iteration)
 
             if iteration != 0:
                 self.old_objective = self.problem.objective.value
@@ -231,7 +231,7 @@ class SpaceshipPlanner:
                 break
 
         # last plot
-        self.plot_solver_results("final")
+        # self.plot_solver_results("final")
 
         # Example data: sequence from array
         mycmds, mystates = self._extract_seq_from_array(
@@ -327,6 +327,10 @@ class SpaceshipPlanner:
             "p": cvx.Variable(self.spaceship.n_p, name="p"),  # final time
             "v_dyn": cvx.Variable((self.spaceship.n_x, self.params.K - 1), name="v_dyn"),
             # "delta": cvx.Variable(nonneg=True, name="delta"),
+            "v_init_state": cvx.Variable(self.spaceship.n_x, name="v_init_state"),
+            "v_goal_coords": cvx.Variable(name="v_goal_coords"),
+            "v_goal_pose": cvx.Variable(name="v_goal_pose"),
+            "v_goal_vel": cvx.Variable(name="v_goal_vel"),
         }
         return variables
 
@@ -415,19 +419,19 @@ class SpaceshipPlanner:
 
         constraints = [
             # Initial state costraint (WAS ALREADY IN THE EXAMPLE)
-            self.variables["X"][:, 0] - self.problem_parameters["init_state"] == 0,
+            self.variables["X"][:, 0] - self.problem_parameters["init_state"] - self.variables["v_init_state"] == 0,
             # Input constraints
             self.variables["U"][:, 0] - np.zeros(self.spaceship.n_u) == 0,
             self.variables["U"][:, self.params.K - 1] - np.zeros(self.spaceship.n_u) == 0,
             # Needs to be close to the goal
-            cvx.norm(goal_coords - fin_coords) - self.params.stop_crit <= 0,
+            cvx.norm(goal_coords - fin_coords) - self.variables["v_goal_coords"] <= 0,
             # Orientation constraint
             # delta_1 >= self.variables["delta"],
             # delta_2 >= self.variables["delta"],
             # self.variables["delta"] <= self.params.stop_crit,
-            pose_fin - pose_goal - self.params.stop_crit <= 0,
+            pose_fin - pose_goal - self.variables["v_goal_pose"] == 0,
             # Specified velocity constraint
-            cvx.norm(v_fin - v_goal) - self.params.stop_crit <= 0,
+            cvx.norm(v_fin - v_goal) - self.variables["v_goal_vel"] <= 0,
             # No collisions
             # TODO
             # Mass constraint
@@ -477,16 +481,41 @@ class SpaceshipPlanner:
         # TODO
         # Example objective
         # objective = self.params.weight_p @ self.variables["p"]
-        objective = cvx.norm(1 / self.params.K * self.variables["U"][0], 1) + 10000 * cvx.norm(
-            self.variables["v_dyn"], 1
+        objective = (
+            cvx.norm(1 / self.params.K * self.variables["U"][0])
+            + 100 * cvx.norm1(self.variables["v_dyn"])
+            + 100 * cvx.norm1(self.variables["v_init_state"])
+            + 100 * cvx.norm1(self.variables["v_goal_coords"])
+            + 100 * cvx.norm1(self.variables["v_goal_pose"])
+            + 100 * cvx.norm1(self.variables["v_goal_vel"])
         )
         # add the final time
         objective += self.params.weight_p @ self.variables["p"]
         return cvx.Minimize(objective)
 
     def _get_non_discretize_objective(self, delta):
-        objective = cvx.norm(1 / self.params.K * self.variables["U"][0].value, 1) + 10000 * cvx.norm(delta, 1)
+        objective = cvx.norm1(1 / self.params.K * self.variables["U"][0].value) + 100 * cvx.norm1(delta)
         objective += self.params.weight_p @ self.variables["p"].value
+        ## add boundary conditions
+        objective += 100 * cvx.norm1(self.variables["X"][:, 0].value - self.problem_parameters["init_state"].value)
+        x_goal = self.problem_parameters["goal_config"][0].value
+        y_goal = self.problem_parameters["goal_config"][1].value
+        x_fin = self.variables["X"][0, self.params.K - 1].value
+        y_fin = self.variables["X"][1, self.params.K - 1].value
+        pose_goal = self.problem_parameters["goal_config"][2].value
+        pose_fin = self.variables["X"][2, self.params.K - 1].value
+        vx_fin = self.variables["X"][3, self.params.K - 1].value
+        vy_fin = self.variables["X"][4, self.params.K - 1].value
+        vx_goal = self.problem_parameters["goal_config"][3].value
+        vy_goal = self.problem_parameters["goal_config"][4].value
+        goal_coords = cvx.vstack([x_goal, y_goal])
+        fin_coords = cvx.vstack([x_fin, y_fin])
+        v_fin = cvx.vstack([vx_fin, vy_fin])
+        v_goal = cvx.vstack([vx_goal, vy_goal])
+        objective += 100 * cvx.norm1(goal_coords - fin_coords)
+        objective += 100 * cvx.norm1(pose_fin - pose_goal)
+        objective += 100 * cvx.norm1(v_fin - v_goal)
+
         return objective.value
 
     def _convexification(self):

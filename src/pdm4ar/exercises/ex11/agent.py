@@ -1,5 +1,4 @@
 from dataclasses import dataclass
-from mimetypes import init
 from typing import Sequence
 
 from dg_commons import DgSampledSequence, PlayerName
