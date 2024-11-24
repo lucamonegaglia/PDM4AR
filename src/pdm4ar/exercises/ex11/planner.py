@@ -32,13 +32,8 @@ class SolverParameters:
 
     # Cvxpy solver parameters
     solver: str = "ECOS"  # specify solver to use
-<<<<<<< Updated upstream
     verbose_solver: bool = True  # if True, the optimization steps are shown
     max_iterations: int = 20  # max algorithm iterations
-=======
-    verbose_solver: bool = False  # if True, the optimization steps are shown
-    max_iterations: int = 100  # max algorithm iterations
->>>>>>> Stashed changes
 
     # SCVX parameters (Add paper reference)
     lambda_nu: float = 1e5  # slack variable weight
@@ -165,11 +160,7 @@ class SpaceshipPlanner:
             print(f"Iteration {iteration + 1}")
             self._convexification()
             # plot before solving
-<<<<<<< Updated upstream
-            self.plot_solver_results(iteration)
-=======
             self.plot_predicted_and_real_results(iteration)
->>>>>>> Stashed changes
 
             if iteration != 0:
                 self.old_objective = self.problem.objective.value
@@ -216,24 +207,14 @@ class SpaceshipPlanner:
                 self.problem_parameters["U_bar"].value,
                 self.problem_parameters["p_bar"].value,
             )
-<<<<<<< Updated upstream
-            delta_pre_solver = cvx.norm(flow_map_pre_solver - self.problem_parameters["X_bar"].value, "fro")
-            objective_pre_solver_non_discretized = self._get_non_discretize_objective2(delta_pre_solver)
-=======
             delta_pre_solver = flow_map_pre_solver - self.problem_parameters["X_bar"].value
-            objective_pre_solver_non_discretized = self._get_non_discretize_objective(delta_pre_solver)
->>>>>>> Stashed changes
+            objective_pre_solver_non_discretized = self._get_non_discretize_objective2(delta_pre_solver)
 
             flow_map_post_solver = self.integrator.integrate_nonlinear_piecewise(
                 self.variables["X"].value, self.variables["U"].value, self.variables["p"].value
             )
-<<<<<<< Updated upstream
-            delta_post_solver = cvx.norm(flow_map_post_solver - self.variables["X"].value, "fro")
-            objective_post_solver_non_discretized = self._get_non_discretize_objective2(delta_post_solver)
-=======
             delta_post_solver = flow_map_post_solver - self.variables["X"].value
-            objective_post_solver_non_discretized = self._get_non_discretize_objective(delta_post_solver)
->>>>>>> Stashed changes
+            objective_post_solver_non_discretized = self._get_non_discretize_objective2(delta_post_solver)
 
             rho = (objective_pre_solver_non_discretized - objective_post_solver_non_discretized) / (
                 objective_pre_solver_non_discretized - self.new_objective
@@ -254,11 +235,7 @@ class SpaceshipPlanner:
             #    break
 
         # last plot
-<<<<<<< Updated upstream
-        self.plot_solver_results("final")
-=======
         self.plot_predicted_and_real_results("final")
->>>>>>> Stashed changes
 
         # Example data: sequence from array
         mycmds, mystates = self._extract_seq_from_array(
@@ -290,27 +267,15 @@ class SpaceshipPlanner:
         axs[0][1].set_xlabel("Step")
         axs[0][1].set_ylabel("Position")
 
-<<<<<<< Updated upstream
-        # Plot vx velocity trajectory
-        axs[1][0].plot(self.problem_parameters["X_bar"].value[3, :].T)
-        axs[1][0].set_title("VX Velocity Trajectory")
-=======
         # Plot phi trajectory
         axs[1][0].plot(self.problem_parameters["X_bar"].value[2, :].T)
-        axs[1][0].set_title("Predicte phi")
->>>>>>> Stashed changes
+        axs[1][0].set_title("Predicted phi")
         axs[1][0].set_xlabel("Step")
         axs[1][0].set_ylabel("phi ")
 
-<<<<<<< Updated upstream
-        # Plot vy velocity trajectory
-        axs[1][1].plot(self.problem_parameters["X_bar"].value[4, :].T)
-        axs[1][1].set_title("VY Velocity Trajectory")
-=======
         # Plot real phi trajectory
         axs[1][1].plot(integrated_X[2, :].T)
         axs[1][1].set_title("Real phi")
->>>>>>> Stashed changes
         axs[1][1].set_xlabel("Step")
         axs[1][1].set_ylabel("phi ")
 
@@ -481,14 +446,14 @@ class SpaceshipPlanner:
             self.variables["U"][:, 0] - np.zeros(self.spaceship.n_u) == 0,
             self.variables["U"][:, self.params.K - 1] - np.zeros(self.spaceship.n_u) == 0,
             # Needs to be close to the goal
-            cvx.norm1(goal_coords - fin_coords) - self.variables["v_goal_coords"] <= 0,
+            cvx.norm(goal_coords - fin_coords, "fro") - self.variables["v_goal_coords"] <= 0,
             # Orientation constraint
             # delta_1 >= self.variables["delta"],
             # delta_2 >= self.variables["delta"],
             # self.variables["delta"] <= self.params.stop_crit,
             pose_fin - pose_goal - self.variables["v_goal_pose"] == 0,
             # Specified velocity constraint
-            cvx.norm1(v_fin - v_goal) - self.variables["v_goal_vel"] <= 0,
+            cvx.norm(v_fin - v_goal, "fro") - self.variables["v_goal_vel"] <= 0,
             # No collisions
             # TODO
             # Mass constraint
@@ -509,7 +474,10 @@ class SpaceshipPlanner:
             # Are 39f, 39d already in here?
             self.variables["p"] >= 0,
             # add constraints for trust region
-            cvx.norm1(deltax) + cvx.norm1(deltau) + cvx.norm1(deltap) - self.problem_parameters["radius_trust_region"]
+            cvx.norm(deltax, "fro")
+            + cvx.norm(deltau, "fro")
+            + cvx.norm(deltap, "fro")
+            - self.problem_parameters["radius_trust_region"]
             <= 0,
         ]
 
@@ -536,12 +504,12 @@ class SpaceshipPlanner:
         # Example objective
         # objective = self.params.weight_p @ self.variables["p"]
         objective = (
-            cvx.norm1(1 / self.params.K * self.variables["U"][0])
-            + 100 * cvx.norm1(self.variables["v_dyn"])
-            + 100 * cvx.norm1(self.variables["v_init_state"])
-            + 100 * cvx.norm1(self.variables["v_goal_coords"])
-            + 100 * cvx.norm1(self.variables["v_goal_pose"])
-            + 100 * cvx.norm1(self.variables["v_goal_vel"])
+            cvx.norm(1 / self.params.K * self.variables["U"][0], "fro")
+            + 100 * cvx.norm(self.variables["v_dyn"], "fro")
+            + 100 * cvx.norm(self.variables["v_init_state"], "fro")
+            + 100 * cvx.norm(self.variables["v_goal_coords"], "fro")
+            + 100 * cvx.norm(self.variables["v_goal_pose"], "fro")
+            + 100 * cvx.norm(self.variables["v_goal_vel"], "fro")
         )
         # add the final time
         # objective += self.params.weight_p @ self.variables["p"]
@@ -549,14 +517,13 @@ class SpaceshipPlanner:
 
     def _get_non_discretize_objective(self, delta):
         objective = cvx.norm1(1 / self.params.K * self.variables["U"][0].value) + 100 * cvx.norm1(delta)
-<<<<<<< Updated upstream
         # objective += self.params.weight_p @ self.variables["p"].value
         objective = cvx.norm(1 / self.params.K * self.variables["U"][0].value, "fro") + 100 * cvx.norm(delta, "fro")
-=======
->>>>>>> Stashed changes
         objective += self.params.weight_p @ self.variables["p"].value
         ## add boundary conditions
-        objective += 100 * cvx.norm1(self.variables["X"][:, 0].value - self.problem_parameters["init_state"].value)
+        objective += 100 * cvx.norm(
+            self.variables["X"][:, 0].value - self.problem_parameters["init_state"].value, "fro"
+        )
         x_goal = self.problem_parameters["goal_config"][0].value
         y_goal = self.problem_parameters["goal_config"][1].value
         x_fin = self.variables["X"][0, self.params.K - 1].value
@@ -571,9 +538,9 @@ class SpaceshipPlanner:
         fin_coords = cvx.vstack([x_fin, y_fin])
         v_fin = cvx.vstack([vx_fin, vy_fin])
         v_goal = cvx.vstack([vx_goal, vy_goal])
-        objective += 100 * cvx.norm1(goal_coords - fin_coords)
-        objective += 100 * cvx.norm1(pose_fin - pose_goal)
-        objective += 100 * cvx.norm1(v_fin - v_goal)
+        objective += 100 * cvx.norm(goal_coords - fin_coords, "fro")
+        objective += 100 * cvx.norm(pose_fin - pose_goal, "fro")
+        objective += 100 * cvx.norm(v_fin - v_goal, "fro")
 
         return objective.value
 
