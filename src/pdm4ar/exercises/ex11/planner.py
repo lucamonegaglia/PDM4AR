@@ -249,31 +249,31 @@ class SpaceshipPlanner:
 
         # Plot position trajectory
         # Plot x position trajectory
-        axs[0][0].plot(self.X_bar[0, :].T)
+        axs[0][0].plot(self.problem_parameters["X_bar"].value[0, :].T)
         axs[0][0].set_title("X Position Trajectory")
         axs[0][0].set_xlabel("Step")
         axs[0][0].set_ylabel("X Position")
 
         # Plot y position trajectory
-        axs[0][1].plot(self.X_bar[1, :].T)
+        axs[0][1].plot(self.problem_parameters["X_bar"].value[1, :].T)
         axs[0][1].set_title("Y Position Trajectory")
         axs[0][1].set_xlabel("Step")
         axs[0][1].set_ylabel("Y Position")
 
         # Plot vx velocity trajectory
-        axs[1][0].plot(self.X_bar[2, :].T)
+        axs[1][0].plot(self.problem_parameters["X_bar"].value[2, :].T)
         axs[1][0].set_title("VX Velocity Trajectory")
         axs[1][0].set_xlabel("Step")
         axs[1][0].set_ylabel("VX Velocity")
 
         # Plot vy velocity trajectory
-        axs[1][1].plot(self.X_bar[3, :].T)
+        axs[1][1].plot(self.problem_parameters["X_bar"].value[3, :].T)
         axs[1][1].set_title("VY Velocity Trajectory")
         axs[1][1].set_xlabel("Step")
         axs[1][1].set_ylabel("VY Velocity")
 
         # Plot U
-        axs[2][0].plot(self.U_bar.T)
+        axs[2][0].plot(self.problem_parameters["U_bar"].value.T)
         axs[2][0].set_title("U")
         axs[2][0].set_xlabel("Step")
         axs[2][0].set_ylabel("U")
