@@ -33,7 +33,7 @@ class SolverParameters:
     # Cvxpy solver parameters
     solver: str = "ECOS"  # specify solver to use
     verbose_solver: bool = True  # if True, the optimization steps are shown
-    max_iterations: int = 100  # max algorithm iterations
+    max_iterations: int = 20  # max algorithm iterations
 
     # SCVX parameters (Add paper reference)
     lambda_nu: float = 1e5  # slack variable weight
@@ -133,7 +133,7 @@ class SpaceshipPlanner:
         constraints = self._get_constraints()
 
         # Objective
-        objective = self._get_objective()
+        objective = self._get_objective2()
 
         # Cvx Optimisation Problem
         self.problem = cvx.Problem(objective, constraints)
@@ -160,7 +160,7 @@ class SpaceshipPlanner:
             print(f"Iteration {iteration + 1}")
             self._convexification()
             # plot before solving
-            # self.plot_solver_results(iteration)
+            self.plot_solver_results(iteration)
 
             if iteration != 0:
                 self.old_objective = self.problem.objective.value
@@ -196,7 +196,11 @@ class SpaceshipPlanner:
                 print("Solver stopped due to user-defined iteration or time limits. Increase the limits.")
             else:
                 print("Solver did not converge. Check formulation and solver settings.")
-
+            temp_X = self.variables["X"].value.copy()
+            temp_U = self.variables["U"].value.copy()
+            if iteration != 0 and self._check_convergence2(temp_X, temp_U):
+                print("Convergence reached.")
+                break
             # compute flow_map
             flow_map_pre_solver = self.integrator.integrate_nonlinear_piecewise(
                 self.problem_parameters["X_bar"].value,
@@ -204,13 +208,13 @@ class SpaceshipPlanner:
                 self.problem_parameters["p_bar"].value,
             )
             delta_pre_solver = cvx.norm(flow_map_pre_solver - self.problem_parameters["X_bar"].value, "fro")
-            objective_pre_solver_non_discretized = self._get_non_discretize_objective(delta_pre_solver)
+            objective_pre_solver_non_discretized = self._get_non_discretize_objective2(delta_pre_solver)
 
             flow_map_post_solver = self.integrator.integrate_nonlinear_piecewise(
                 self.variables["X"].value, self.variables["U"].value, self.variables["p"].value
             )
             delta_post_solver = cvx.norm(flow_map_post_solver - self.variables["X"].value, "fro")
-            objective_post_solver_non_discretized = self._get_non_discretize_objective(delta_post_solver)
+            objective_post_solver_non_discretized = self._get_non_discretize_objective2(delta_post_solver)
 
             rho = (objective_pre_solver_non_discretized - objective_post_solver_non_discretized) / (
                 objective_pre_solver_non_discretized - self.new_objective
@@ -227,11 +231,11 @@ class SpaceshipPlanner:
             # used for debug only
             self.v_dyn = self.variables["v_dyn"].value
 
-            if iteration != 0 and self._check_convergence(objective_pre_solver_non_discretized):
-                break
+            # if iteration != 0 and self._check_convergence(objective_pre_solver_non_discretized):
+            #    break
 
         # last plot
-        # self.plot_solver_results("final")
+        self.plot_solver_results("final")
 
         # Example data: sequence from array
         mycmds, mystates = self._extract_seq_from_array(
@@ -261,13 +265,13 @@ class SpaceshipPlanner:
         axs[0][1].set_ylabel("Y Position")
 
         # Plot vx velocity trajectory
-        axs[1][0].plot(self.problem_parameters["X_bar"].value[2, :].T)
+        axs[1][0].plot(self.problem_parameters["X_bar"].value[3, :].T)
         axs[1][0].set_title("VX Velocity Trajectory")
         axs[1][0].set_xlabel("Step")
         axs[1][0].set_ylabel("VX Velocity")
 
         # Plot vy velocity trajectory
-        axs[1][1].plot(self.problem_parameters["X_bar"].value[3, :].T)
+        axs[1][1].plot(self.problem_parameters["X_bar"].value[4, :].T)
         axs[1][1].set_title("VY Velocity Trajectory")
         axs[1][1].set_xlabel("Step")
         axs[1][1].set_ylabel("VY Velocity")
@@ -490,13 +494,70 @@ class SpaceshipPlanner:
             + 100 * cvx.norm(self.variables["v_goal_vel"], "fro")
         )
         # add the final time
-        objective += self.params.weight_p @ self.variables["p"]
+        # objective += self.params.weight_p @ self.variables["p"]
         return cvx.Minimize(objective)
 
     def _get_non_discretize_objective(self, delta):
+        objective = cvx.norm1(1 / self.params.K * self.variables["U"][0].value) + 100 * cvx.norm1(delta)
+        # objective += self.params.weight_p @ self.variables["p"].value
         objective = cvx.norm(1 / self.params.K * self.variables["U"][0].value, "fro") + 100 * cvx.norm(delta, "fro")
         objective += self.params.weight_p @ self.variables["p"].value
         ## add boundary conditions
+        objective += 100 * cvx.norm(
+            self.variables["X"][:, 0].value - self.problem_parameters["init_state"].value, "fro"
+        )
+        x_goal = self.problem_parameters["goal_config"][0].value
+        y_goal = self.problem_parameters["goal_config"][1].value
+        x_fin = self.variables["X"][0, self.params.K - 1].value
+        y_fin = self.variables["X"][1, self.params.K - 1].value
+        pose_goal = self.problem_parameters["goal_config"][2].value
+        pose_fin = self.variables["X"][2, self.params.K - 1].value
+        vx_fin = self.variables["X"][3, self.params.K - 1].value
+        vy_fin = self.variables["X"][4, self.params.K - 1].value
+        vx_goal = self.problem_parameters["goal_config"][3].value
+        vy_goal = self.problem_parameters["goal_config"][4].value
+        goal_coords = cvx.vstack([x_goal, y_goal])
+        fin_coords = cvx.vstack([x_fin, y_fin])
+        v_fin = cvx.vstack([vx_fin, vy_fin])
+        v_goal = cvx.vstack([vx_goal, vy_goal])
+        objective += 100 * cvx.norm(goal_coords - fin_coords, "fro")
+        objective += 100 * cvx.norm(pose_fin - pose_goal, "fro")
+        objective += 100 * cvx.norm(v_fin - v_goal, "fro")
+
+        return objective.value
+
+    def _get_objective2(self) -> Union[cvx.Minimize, cvx.Maximize]:
+        """
+        Define objective for SCvx.
+        """
+        # TODO
+        # Example objective
+        # objective = self.params.weight_p @ self.variables["p"]
+        objective = cvx.norm(1 / self.params.K * self.variables["U"], "fro")
+        for i in range(self.params.K):
+            objective += cvx.norm(
+                1 / self.params.K * (self.variables["X"][0:6, i] - self.problem_parameters["goal_config"]), "fro"
+            )
+        objective += (
+            100 * cvx.norm(1 / self.params.K * self.variables["v_dyn"], "fro")
+            + 100 * cvx.norm(self.variables["v_init_state"], "fro")
+            + 100 * cvx.norm(self.variables["v_goal_coords"], "fro")
+            + 100 * cvx.norm(self.variables["v_goal_pose"], "fro")
+            + 100 * cvx.norm(self.variables["v_goal_vel"], "fro")
+        )
+
+        # add the final time
+        # objective += self.params.weight_p @ self.variables["p"]
+        return cvx.Minimize(objective)
+
+    def _get_non_discretize_objective2(self, delta):
+        objective = cvx.norm(1 / self.params.K * self.variables["U"].value, "fro")
+        for i in range(self.params.K):
+            objective += cvx.norm(
+                1 / self.params.K * (self.variables["X"][0:6, i].value - self.problem_parameters["goal_config"]).value,
+                "fro",
+            )
+        objective += 100 * cvx.norm(1 / self.params.K * delta, "fro")
         objective += 100 * cvx.norm(
             self.variables["X"][:, 0].value - self.problem_parameters["init_state"].value, "fro"
         )
@@ -559,6 +620,18 @@ class SpaceshipPlanner:
         """
         return abs(self.new_objective - objective_pre_solver_non_discretized) < self.params.stop_crit * abs(
             objective_pre_solver_non_discretized
+        )
+
+    def _check_convergence2(self, X_solution, P_solution) -> bool:
+        """
+        Check convergence of SCvx.
+        """
+        return bool(
+            (
+                cvx.norm(X_solution - self.problem_parameters["X_bar"].value, 1)
+                + cvx.norm(P_solution - self.problem_parameters["p_bar"].value, 1)
+            ).value
+            <= self.params.stop_crit
         )
 
     def _update_trust_region(self, rho: float):
