@@ -32,8 +32,8 @@ class SolverParameters:
 
     # Cvxpy solver parameters
     solver: str = "ECOS"  # specify solver to use
-    verbose_solver: bool = True  # if True, the optimization steps are shown
-    max_iterations: int = 20  # max algorithm iterations
+    verbose_solver: bool = False  # if True, the optimization steps are shown
+    max_iterations: int = 40  # max algorithm iterations
 
     # SCVX parameters (Add paper reference)
     lambda_nu: float = 1e5  # slack variable weight
@@ -138,7 +138,7 @@ class SpaceshipPlanner:
         # Cvx Optimisation Problem
         self.problem = cvx.Problem(objective, constraints)
 
-    def compute_trajectory(  # MISSING TRUST REGION UPDATE, VIRUTAL CONTROL???
+    def compute_trajectory(
         self, init_state: SpaceshipState, goal_state: DynObstacleState
     ) -> tuple[DgSampledSequence[SpaceshipCommands], DgSampledSequence[SpaceshipState]]:
         """
@@ -160,7 +160,7 @@ class SpaceshipPlanner:
             print(f"Iteration {iteration + 1}")
             self._convexification()
             # plot before solving
-            self.plot_predicted_and_real_results(iteration)
+            # self.plot_predicted_and_real_results(iteration)
 
             if iteration != 0:
                 self.old_objective = self.problem.objective.value
@@ -240,8 +240,8 @@ class SpaceshipPlanner:
 
         # Example data: sequence from array
         mycmds, mystates = self._extract_seq_from_array(
-            # tuple(range(self.params.K)), self.U_bar[0], self.U_bar[1], self.X_bar.T
-            tuple(range(self.params.K)),
+            # tuple(range(self.params.K)),
+            tuple(np.arange(self.params.K) * self.variables["p"].value / self.params.K),
             self.problem_parameters["U_bar"].value[0],
             self.problem_parameters["U_bar"].value[1],
             self.problem_parameters["X_bar"].T,
@@ -259,8 +259,8 @@ class SpaceshipPlanner:
         # Plot predicted position trajectory
         axs[0][0].plot(self.problem_parameters["X_bar"].value[0, :].T, self.problem_parameters["X_bar"].value[1, :].T)
         axs[0][0].set_title("Predicted Position")
-        axs[0][0].set_xlabel("Step")
-        axs[0][0].set_ylabel("Position")
+        axs[0][0].set_xlabel("X")
+        axs[0][0].set_ylabel("y")
 
         # Plot real position trajectory
         axs[0][1].plot(integrated_X[0, :].T, integrated_X[1, :].T)
@@ -301,7 +301,7 @@ class SpaceshipPlanner:
         axs[3][0].set_ylabel("U")
 
         # Plot vdyn
-        axs[3][1].plot(self.v_dyn)
+        axs[3][1].plot(self.v_dyn.T)
         axs[3][1].set_title("VDYN")
         axs[3][1].set_xlabel("Step")
         axs[3][1].set_ylabel("VDYN")
@@ -319,8 +319,17 @@ class SpaceshipPlanner:
         axs[4][1].set_xlabel("Step")
         axs[4][1].set_ylabel("Mass")
 
+        if self.init_state.as_ndarray()[0] == -9.0:
+            test_case = "1"
+        elif self.goal_state.as_ndarray()[0] == 8.0:
+            test_case = "2"
+        elif self.goal_state.as_ndarray()[0] == 23.0:
+            test_case = "3"
+        else:
+            test_case = "boh"
+
         plt.tight_layout()
-        plt.savefig(f"src/pdm4ar/exercises/ex11/plots/plot{iteration}.png")
+        plt.savefig(f"src/pdm4ar/exercises/ex11/plots/case{test_case}-it{iteration}.png")
         plt.close()
 
     def initial_guess(self) -> tuple[NDArray, NDArray, NDArray]:
@@ -563,28 +572,37 @@ class SpaceshipPlanner:
                 1 / self.params.K * (self.variables["X"][0:6, i] - self.problem_parameters["goal_config"]), "fro"
             )
         objective += (
-            100 * cvx.norm(1 / self.params.K * self.variables["v_dyn"], "fro")
-            + 100 * cvx.norm(self.variables["v_init_state"], "fro")
+            #1000 * cvx.norm(1 / self.params.K * self.variables["v_dyn"], "fro")
+            # + 1000 * cvx.norm(self.variables["v_init_state"], "fro")
+            # + 1000 * cvx.norm(self.variables["v_goal_config"], "fro")
+            1000 * cvx.sum(cvx.abs(1 / self.params.K * self.variables["v_dyn"]))
+            + 1000 * cvx.sum(cvx.abs(self.variables["v_init_state"]))
+            + 1000 * cvx.sum(cvx.abs(self.variables["v_goal_config"])
             # + 100 * cvx.norm(self.variables["v_goal_coords"], "fro")
             # + 100 * cvx.norm(self.variables["v_goal_pose"], "fro")
             # + 100 * cvx.norm(self.variables["v_goal_vel"], "fro")
-            + 100 * cvx.norm(self.variables["v_goal_config"], "fro")
         )
 
         # add the final time
-        # objective += 1 * self.variables["p"]
+        objective += 0.0001 * self.variables["p"]
         return cvx.Minimize(objective)
 
     def _get_non_discretize_objective2(self, delta):
-        objective = cvx.norm(1 / self.params.K * self.variables["U"].value, "fro")
+        objective = cvx.norm(1 / self.params.K * self.variables["U"], "fro")
         for i in range(self.params.K):
             objective += cvx.norm(
-                1 / self.params.K * (self.variables["X"][0:6, i].value - self.problem_parameters["goal_config"]).value,
+                1 / self.params.K * (self.variables["X"][0:6, i] - self.problem_parameters["goal_config"]),
                 "fro",
             )
-        objective += 100 * cvx.norm(1 / self.params.K * delta, "fro")
-        objective += 100 * cvx.norm(
-            self.variables["X"][:, 0].value - self.problem_parameters["init_state"].value, "fro"
+        # objective += 1000 * cvx.norm(1 / self.params.K * delta, "fro")
+        # objective += 1000 * cvx.norm(self.variables["X"][:, 0] - self.problem_parameters["init_state"], "fro")
+        # objective += 1000 * cvx.norm(
+        #    self.variables["X"][0:6, self.params.K - 1] - self.problem_parameters["goal_config"], "fro"
+        # )
+        objective += 1000 * cvx.sum(cvx.abs(1 / self.params.K * delta))
+        objective += 1000 * cvx.sum(cvx.abs(self.variables["X"][:, 0] - self.problem_parameters["init_state"]))
+        objective += 1000 * cvx.sum(
+            cvx.abs(self.variables["X"][0:6, self.params.K - 1] - self.problem_parameters["goal_config"])
         )
         # x_goal = self.problem_parameters["goal_config"][0].value
         # y_goal = self.problem_parameters["goal_config"][1].value
@@ -603,9 +621,8 @@ class SpaceshipPlanner:
         # objective += 100 * cvx.norm(goal_coords - fin_coords, "fro")
         # objective += 100 * cvx.norm(pose_fin - pose_goal, "fro")
         # objective += 100 * cvx.norm(v_fin - v_goal, "fro")
-        objective += 100 * cvx.norm(
-            self.variables["X"][0:6, self.params.K - 1].value - self.problem_parameters["goal_config"].value, "fro"
-        )
+
+        objective += 0.0001 * self.variables["p"]
         return objective.value
 
     def _convexification(self):
@@ -678,7 +695,7 @@ class SpaceshipPlanner:
 
     @staticmethod
     def _extract_seq_from_array(
-        ts: tuple[int, ...], F: np.ndarray, ddelta: np.ndarray, npstates: np.ndarray
+        ts: tuple, F: np.ndarray, ddelta: np.ndarray, npstates: np.ndarray
     ) -> tuple[DgSampledSequence[SpaceshipCommands], DgSampledSequence[SpaceshipState]]:
         """
         Create DgSampledSequence from provided numpy arrays and timestamps.
