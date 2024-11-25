@@ -14,6 +14,8 @@ from pdm4ar.exercises.ex11.planner import SpaceshipPlanner
 from pdm4ar.exercises_def.ex11.goal import SpaceshipTarget, DockingTarget
 from pdm4ar.exercises_def.ex11.utils_params import PlanetParams, SatelliteParams
 
+import numpy as np
+
 
 @dataclass(frozen=True)
 class MyAgentParams:
@@ -72,6 +74,8 @@ class SpaceshipAgent(Agent):
         self.sp = init_sim_obs.model_params
         assert isinstance(init_sim_obs.goal, SpaceshipTarget | DockingTarget)
         self.goal_state = init_sim_obs.goal.target
+        # self.goal_state.x = self.goal_state.x - self.sg.l_r * np.cos(self.goal_state.psi)
+        # self.goal_state.y = self.goal_state.y - self.sg.l_r * np.sin(self.goal_state.psi)
         self.planner = SpaceshipPlanner(
             planets=self.planets,
             satellites=self.satellites,
@@ -101,13 +105,16 @@ class SpaceshipAgent(Agent):
         current_state = sim_obs.players[self.myname].state
         expected_state = self.state_traj.at_interp(sim_obs.time)
 
+        expected_state_vec = [expected_state.as_ndarray()[i].value for i in range(8)]
+
+        # if np.any(current_state.as_ndarray() - expected_state_vec > 0.01):
+        #    print(f"Current - expected at time {sim_obs.time}: {current_state.as_ndarray() - expected_state_vec}")
+
         #
         # TODO: Implement scheme to replan
         #
-
-        # ZeroOrderHold
-        # cmds = self.cmds_plan.at_or_previous(sim_obs.time)
-        # FirstOrderHold
+        # if np.any(current_state.as_ndarray() - expected_state_vec > 0.1):
+        #    self.cmds_plan, self.state_traj = self.planner.compute_trajectory(current_state, self.goal_state)
         cmds = self.cmds_plan.at_interp(sim_obs.time)
 
         return cmds
