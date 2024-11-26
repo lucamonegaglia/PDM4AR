@@ -500,7 +500,7 @@ class SpaceshipPlanner:
 
         # obstacle avoidance of planets
         constraints += [
-            self.problem_parameters["C_times_X"] - self.problem_parameters["r_planets"] - self.variables["v_s"] <= 0
+            self.problem_parameters["C_times_X"] + self.problem_parameters["r_planets"] - self.variables["v_s"] <= 0
         ]
         return constraints
 
@@ -544,6 +544,11 @@ class SpaceshipPlanner:
 
         # jacobian of the obstacle function
         C = s_function.jacobian(self.x)
+
+        # print shape of C
+        print(f"Shape of C: {C.shape}")
+        # print number of planets
+        print(f"Number of planets: {len(self.planets)}")
 
         s_function = spy.lambdify(self.x, s_function, "numpy")
         C_func = spy.lambdify(self.x, C, "numpy")
