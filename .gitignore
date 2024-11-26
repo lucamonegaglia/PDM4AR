@@ -146,3 +146,4 @@ dmypy.json
 
 # plots
 src/pdm4ar/exercises/ex11/plots/*
+src/pdm4ar/exercises_def/ex11/*
