@@ -171,7 +171,7 @@ class SpaceshipPlanner:
             # self.plot_predicted_and_real_results(iteration)
 
             # print the C matrix
-            print(self.problem_parameters["C_planets"].value)
+            # print(self.problem_parameters["C_planets"].value)
 
             if iteration != 0:
                 self.old_objective = self.problem.objective.value
@@ -386,7 +386,7 @@ class SpaceshipPlanner:
             "v_dyn": cvx.Variable((self.spaceship.n_x, self.params.K - 1), name="v_dyn"),
             "v_init_state": cvx.Variable(self.spaceship.n_x, name="v_init_state"),
             "v_goal_config": cvx.Variable(self.spaceship.n_x - 2, name="v_goal_config"),
-            "v_s": cvx.Variable((len(self.planets) * 3, self.params.K), name="v_s"),
+            # "v_s": cvx.Variable((len(self.planets) * 3, self.params.K), name="v_s"),
             # "v_goal_coords": cvx.Variable(name="v_goal_coords"),
             # "v_goal_pose": cvx.Variable(name="v_goal_pose"),
             # "v_goal_vel": cvx.Variable(name="v_goal_vel"),
@@ -412,8 +412,8 @@ class SpaceshipPlanner:
             "deltax": cvx.Parameter((self.n_x, self.params.K), name="deltax"),
             "deltau": cvx.Parameter((self.n_u, self.params.K), name="deltau"),
             "deltap": cvx.Parameter(self.n_p, name="deltap"),
-            "C_planets": cvx.Parameter((len(self.planets) * 3 * self.n_x_obstacles, self.params.K), name="C_planets"),
-            "r_planets": cvx.Parameter((len(self.planets) * 3, self.params.K), name="r_planets"),
+            # "C_planets": cvx.Parameter((len(self.planets) * 3 * self.n_x_obstacles, self.params.K), name="C_planets"),
+            # "r_planets": cvx.Parameter((len(self.planets) * 3, self.params.K), name="r_planets"),
             # "C_times_X": cvx.Parameter((len(self.planets) * 3, self.params.K), name="C_times_X"),
         }
 
@@ -505,23 +505,23 @@ class SpaceshipPlanner:
         # constraints += [
         #     self.problem_parameters["C_times_X"] + self.problem_parameters["r_planets"] - self.variables["v_s"] <= 0
         # ]
-        for k in range(self.params.K):
-            constraints += [
-                cvx.matmul(
-                    self.problem_parameters["C_planets"][:, k].reshape((len(self.planets) * 3, self.n_x_obstacles)),
-                    self.variables["X"][: self.n_x_obstacles, k],
-                )
-                + self.problem_parameters["r_planets"][:, k]
-                - self.variables["v_s"][:, k]
-                <= 0
-            ]
+        # for k in range(self.params.K):
+        #     constraints += [
+        #         cvx.matmul(
+        #             self.problem_parameters["C_planets"][:, k].reshape((len(self.planets) * 3, self.n_x_obstacles)),
+        #             self.variables["X"][: self.n_x_obstacles, k],
+        #         )
+        #         + self.problem_parameters["r_planets"][:, k]
+        #         - self.variables["v_s"][:, k]
+        #         <= 0
+        #     ]
         return constraints
 
     def _jacobians_obstacles(self):
         """
         Convexify obstacles for SCvx.
         """
-        self.x = spy.Matrix(spy.symbols("x y psi", real=True))
+        x = spy.Matrix(spy.symbols("x y psi", real=True))
 
         # array of C, D, G matrixes and r vectors
 
@@ -535,36 +535,36 @@ class SpaceshipPlanner:
             # rectangular part
             d = (self.sg.l_r + self.sg.l_f) / 2
             r = spy.sqrt(d**2 + self.sg.w_half**2)
-            cx = self.x[0] + (d - self.sg.l_r) * spy.cos(self.x[2])
-            cy = self.x[1] + (d - self.sg.l_r) * spy.sin(self.x[2])
+            cx = x[0] + (d - self.sg.l_r) * spy.cos(x[2])
+            cy = x[1] + (d - self.sg.l_r) * spy.sin(x[2])
             s_function[i] = (planet.radius + r) ** 2 - ((cx - planet.center[0]) ** 2 + (cy - planet.center[1]) ** 2)
             i += 1
 
             # triangular part
             a = spy.sqrt(self.sg.w_half**2 + self.sg.l_c**2)
             r2 = (a**2 * self.sg.w_half * 2) / (4 * self.sg.l_c * self.sg.w_half)
-            cx2 = self.x[0] + (self.sg.l_f + self.sg.l_c - r2) * spy.cos(self.x[2])
-            cy2 = self.x[1] + (self.sg.l_f + self.sg.l_c - r2) * spy.sin(self.x[2])
+            cx2 = x[0] + (self.sg.l_f + self.sg.l_c - r2) * spy.cos(x[2])
+            cy2 = x[1] + (self.sg.l_f + self.sg.l_c - r2) * spy.sin(x[2])
             s_function[i] = (planet.radius + r2) ** 2 - ((cx2 - planet.center[0]) ** 2 + (cy2 - planet.center[1]) ** 2)
             i += 1
 
             # thrust part
-            cx3 = self.x[0] - (self.sg.l_r) * spy.cos(self.x[2])
-            cy3 = self.x[1] - (self.sg.l_r) * spy.sin(self.x[2])
+            cx3 = x[0] - (self.sg.l_r) * spy.cos(x[2])
+            cy3 = x[1] - (self.sg.l_r) * spy.sin(x[2])
             r3 = self.sg.l_t_half
             s_function[i] = (planet.radius + r3) ** 2 - ((cx3 - planet.center[0]) ** 2 + (cy3 - planet.center[1]) ** 2)
             i += 1
 
         # jacobian of the obstacle function
-        C = s_function.jacobian(self.x)
+        C = s_function.jacobian(x)
 
         # print shape of C
         print(f"Shape of C: {C.shape}")
         # print number of planets
         print(f"Number of planets: {len(self.planets)}")
 
-        s_function = spy.lambdify((self.x), s_function, "numpy")
-        C_func = spy.lambdify((self.x), C, "numpy")
+        s_function = spy.lambdify((x), s_function, "numpy")
+        C_func = spy.lambdify((x), C, "numpy")
 
         return s_function, C_func
 
@@ -603,7 +603,7 @@ class SpaceshipPlanner:
             1000 * cvx.sum(cvx.abs(1 / self.params.K * self.variables["v_dyn"]))
             + 1000 * cvx.sum(cvx.abs(self.variables["v_init_state"]))
             + 1000 * cvx.sum(cvx.abs(self.variables["v_goal_config"]))
-            + 1000 * cvx.sum(cvx.abs(self.variables["v_s"]))
+            # + 1000 * cvx.sum(cvx.abs(self.variables["v_s"]))
         )
 
         # add the final time
@@ -643,7 +643,7 @@ class SpaceshipPlanner:
             cvx.abs(self.variables["X"][0:6, self.params.K - 1] - self.problem_parameters["goal_config"])
         )
         objective += 0.001 * self.variables["p"]
-        objective += 1000 * cvx.max(self.problem_parameters["C_times_X"] - self.problem_parameters["r_planets"], 0)
+        # objective += 1000 * cvx.max(self.problem_parameters["C_times_X"] - self.problem_parameters["r_planets"], 0)
         return objective.value
 
     def _convexification(self):
@@ -672,27 +672,27 @@ class SpaceshipPlanner:
         self.problem_parameters["F_bar"].value = F_bar  # .T.reshape((-1, self.n_x, self.n_p), order="F")
         self.problem_parameters["r_bar"].value = r_bar  # .T.reshape((-1, self.n_x), order="F")
 
-        # get matrix C for obstacle avoidance
-        s_function, C = self._jacobians_obstacles()
-        # construct the C matrix and s_matrix calling C and s_function at each time step between 0 and K
-        C_matrix = np.zeros((len(self.planets) * 3 * self.n_x_obstacles, self.params.K))
-        s_matrix = np.zeros((len(self.planets) * 3, self.params.K))
-        for k in range(self.params.K):
-            x = self.problem_parameters["X_bar"].value[: self.n_x_obstacles, k]
-            # reshape x to be a numpy array
-            x = np.array(x)
-            s_matrix[:, k] = s_function(*x).flatten()
-            C_matrix[:, k] = C(*x).flatten()
+        # # get matrix C for obstacle avoidance
+        # s_function, C = self._jacobians_obstacles()
+        # # construct the C matrix and s_matrix calling C and s_function at each time step between 0 and K
+        # C_matrix = np.zeros((len(self.planets) * 3 * self.n_x_obstacles, self.params.K))
+        # s_matrix = np.zeros((len(self.planets) * 3, self.params.K))
+        # for k in range(self.params.K):
+        #     x = self.problem_parameters["X_bar"].value[: self.n_x_obstacles, k]
+        #     # reshape x to be a numpy array
+        #     x = np.array(x)
+        #     s_matrix[:, k] = s_function(*x).flatten()
+        #     C_matrix[:, k] = C(*x).flatten()
 
-        self.problem_parameters["C_planets"].value = C_matrix
-        # compute C_matrix * X_bar
-        C_times_X = np.zeros((len(self.planets) * 3, self.params.K))
-        for k in range(self.params.K):
-            C_times_X[:, k] = np.matmul(
-                C_matrix[:, k].reshape((len(self.planets) * 3, self.n_x_obstacles)),
-                self.problem_parameters["X_bar"].value[: self.n_x_obstacles, k],
-            )
-        self.problem_parameters["r_planets"].value = s_matrix - C_times_X
+        # self.problem_parameters["C_planets"].value = C_matrix
+        # # compute C_matrix * X_bar
+        # C_times_X = np.zeros((len(self.planets) * 3, self.params.K))
+        # for k in range(self.params.K):
+        #     C_times_X[:, k] = np.matmul(
+        #         C_matrix[:, k].reshape((len(self.planets) * 3, self.n_x_obstacles)),
+        #         self.problem_parameters["X_bar"].value[: self.n_x_obstacles, k],
+        #     )
+        # self.problem_parameters["r_planets"].value = s_matrix - C_times_X
 
     def _check_convergence(self, objective_pre_solver_non_discretized: float) -> bool:
         """
