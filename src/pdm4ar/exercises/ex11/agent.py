@@ -73,9 +73,11 @@ class SpaceshipAgent(Agent):
         self.sg = init_sim_obs.model_geometry
         self.sp = init_sim_obs.model_params
         assert isinstance(init_sim_obs.goal, SpaceshipTarget | DockingTarget)
-        self.goal_state = init_sim_obs.goal.target
-        # self.goal_state.x = self.goal_state.x - self.sg.l_r * np.cos(self.goal_state.psi)
-        # self.goal_state.y = self.goal_state.y - self.sg.l_r * np.sin(self.goal_state.psi)
+        if isinstance(init_sim_obs.goal, SpaceshipTarget):
+            self.goal_state = init_sim_obs.goal.target
+            if isinstance(init_sim_obs.goal, DockingTarget):
+                self.goal_state.x = self.goal_state.x - init_sim_obs.goal.offset * np.cos(self.goal_state.psi)
+                self.goal_state.y = self.goal_state.y - init_sim_obs.goal.offset * np.sin(self.goal_state.psi)
         self.planner = SpaceshipPlanner(
             planets=self.planets,
             satellites=self.satellites,
