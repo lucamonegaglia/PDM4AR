@@ -567,9 +567,7 @@ class SpaceshipPlanner:
             i += 1
             """
             s_function[i] = (
-                (planet.radius + 3 * self.sg.l_r) ** 2
-                - (self.x[0] - planet.center[0]) ** 2
-                - (self.x[1] - planet.center[1]) ** 2
+                (planet.radius + 3 * self.sg.l_r) ** 2 - (x[0] - planet.center[0]) ** 2 - (x[1] - planet.center[1]) ** 2
             )
 
         # jacobian of the obstacle function
@@ -620,7 +618,7 @@ class SpaceshipPlanner:
             1000 * cvx.sum(cvx.abs(1 / self.params.K * self.variables["v_dyn"]))
             + 1000 * cvx.sum(cvx.abs(self.variables["v_init_state"]))
             + 1000 * cvx.sum(cvx.abs(self.variables["v_goal_config"]))
-            # + 1000 * cvx.sum(cvx.abs(self.variables["v_s"]))
+            + 1000 * cvx.sum(cvx.abs(self.variables["v_s"]))
         )
 
         # add the final time
