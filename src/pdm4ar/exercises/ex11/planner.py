@@ -532,7 +532,7 @@ class SpaceshipPlanner:
         """
         Convexify obstacles for SCvx.
         """
-        self.x = spy.Matrix(spy.symbols("x y psi", real=True))
+        x = spy.Matrix(spy.symbols("x y psi", real=True))
 
         # array of C, D, G matrixes and r vectors
 
@@ -546,22 +546,22 @@ class SpaceshipPlanner:
             # rectangular part
             d = (self.sg.l_r + self.sg.l_f) / 2
             r = spy.sqrt(d**2 + self.sg.w_half**2)
-            cx = self.x[0] + (d - self.sg.l_r) * spy.cos(self.x[2])
-            cy = self.x[1] + (d - self.sg.l_r) * spy.sin(self.x[2])
+            cx = x[0] + (d - self.sg.l_r) * spy.cos(x[2])
+            cy = x[1] + (d - self.sg.l_r) * spy.sin(x[2])
             s_function[i] = (planet.radius + r) ** 2 - ((cx - planet.center[0]) ** 2 + (cy - planet.center[1]) ** 2)
             i += 1
 
             # triangular part
             a = spy.sqrt(self.sg.w_half**2 + self.sg.l_c**2)
             r2 = (a**2 * self.sg.w_half * 2) / (4 * self.sg.l_c * self.sg.w_half)
-            cx2 = self.x[0] + (self.sg.l_f + self.sg.l_c - r2) * spy.cos(self.x[2])
-            cy2 = self.x[1] + (self.sg.l_f + self.sg.l_c - r2) * spy.sin(self.x[2])
+            cx2 = x[0] + (self.sg.l_f + self.sg.l_c - r2) * spy.cos(x[2])
+            cy2 = x[1] + (self.sg.l_f + self.sg.l_c - r2) * spy.sin(x[2])
             s_function[i] = (planet.radius + r2) ** 2 - ((cx2 - planet.center[0]) ** 2 + (cy2 - planet.center[1]) ** 2)
             i += 1
 
             # thrust part
-            cx3 = self.x[0] - (self.sg.l_r) * spy.cos(self.x[2])
-            cy3 = self.x[1] - (self.sg.l_r) * spy.sin(self.x[2])
+            cx3 = x[0] - (self.sg.l_r) * spy.cos(x[2])
+            cy3 = x[1] - (self.sg.l_r) * spy.sin(x[2])
             r3 = self.sg.l_t_half
             s_function[i] = (planet.radius + r3) ** 2 - ((cx3 - planet.center[0]) ** 2 + (cy3 - planet.center[1]) ** 2)
             i += 1
@@ -573,15 +573,15 @@ class SpaceshipPlanner:
             )
 
         # jacobian of the obstacle function
-        C = s_function.jacobian(self.x)
+        C = s_function.jacobian(x)
 
         # print shape of C
         # print(f"Shape of C: {C.shape}")
         # print number of planets
         # print(f"Number of planets: {len(self.planets)}")
 
-        s_function = spy.lambdify((self.x), s_function, "numpy")
-        C_func = spy.lambdify((self.x), C, "numpy")
+        s_function = spy.lambdify((x), s_function, "numpy")
+        C_func = spy.lambdify((x), C, "numpy")
 
         return s_function, C_func
 
@@ -620,7 +620,7 @@ class SpaceshipPlanner:
             1000 * cvx.sum(cvx.abs(1 / self.params.K * self.variables["v_dyn"]))
             + 1000 * cvx.sum(cvx.abs(self.variables["v_init_state"]))
             + 1000 * cvx.sum(cvx.abs(self.variables["v_goal_config"]))
-            + 1000 * cvx.sum(cvx.abs(self.variables["v_s"]))
+            # + 1000 * cvx.sum(cvx.abs(self.variables["v_s"]))
         )
 
         # add the final time
