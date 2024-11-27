@@ -14,6 +14,8 @@ from dg_commons.sim.models.spaceship_structures import (
     SpaceshipGeometry,
     SpaceshipParameters,
 )
+from dg_commons.sim.scenarios import DgScenario
+from shapely.geometry import LineString
 
 from pdm4ar.exercises.ex11.discretization import *
 
@@ -92,7 +94,8 @@ class SpaceshipPlanner:
         sg: SpaceshipGeometry,
         sp: SpaceshipParameters,
         init_state: SpaceshipState,
-        goal_state: DynObstacleState,
+        goal_state: SpaceshipTarget,
+        scenario: DgScenario,
     ):
         """
         Pass environment information to the planner.
@@ -101,6 +104,7 @@ class SpaceshipPlanner:
         self.satellites = satellites
         self.sg = sg
         self.sp = sp
+        self.scenario = scenario
 
         # Solver Parameters
         self.params = SolverParameters()
@@ -121,9 +125,12 @@ class SpaceshipPlanner:
         # self.init_state = SpaceshipState(0, 0, 0, 0, 0, 0, 0, 2)
 
         self.init_state = init_state
-        self.goal_state = goal_state
-        print(f"goal state: {goal_state.x} {goal_state.y}")
-        print(f"n_x and n_x_obstacles: {self.n_x} {self.n_x_obstacles}")
+        self.is_docking = False
+        if isinstance(goal_state, DockingTarget):
+            self.is_docking = True
+        self.goal_state = goal_state.target
+        # print(f"goal state: {goal_state.x} {goal_state.y}")
+        # print(f"n_x and n_x_obstacles: {self.n_x} {self.n_x_obstacles}")
         self.dist_init_goal = cvx.norm(
             self.init_state.x + self.init_state.y - self.goal_state.x - self.goal_state.y, "fro"
         )
@@ -147,14 +154,17 @@ class SpaceshipPlanner:
         self.problem = cvx.Problem(objective, constraints)
 
     def compute_trajectory(
-        self, init_state: SpaceshipState, goal_state: DynObstacleState
+        self, init_state: SpaceshipState, goal_state: SpaceshipTarget
     ) -> tuple[DgSampledSequence[SpaceshipCommands], DgSampledSequence[SpaceshipState]]:
         """
         Compute a trajectory from init_state to goal_state.
         """
         # overwrite previous (temporary) init and goal state
         self.init_state = init_state
-        self.goal_state = goal_state
+        self.is_docking = False
+        if isinstance(goal_state, DockingTarget):
+            self.is_docking = True
+        self.goal_state = goal_state.target
 
         # Initialize state and control trajectories
         self.initial_guess()
@@ -509,13 +519,6 @@ class SpaceshipPlanner:
         ]
 
         # obstacle avoidance of planets
-        # constraints += [
-        #     self.problem_parameters["C_times_X"] + self.problem_parameters["r_planets"] - self.variables["v_s"] <= 0
-        # ]
-        # m = self.problem_parameters["C_planets"][:, 1].reshape((len(self.planets) * 3, self.n_x_obstacles), order="C")
-        # tempc = cvx.matmul(m, self.variables["X"][: self.n_x_obstacles, 1])
-        # r_planet = self.problem_parameters["r_planets"][:, 1]
-
         for k in range(self.params.K):
             m = self.problem_parameters["C_planets"][:, k].reshape((len(self.planets), self.n_x_obstacles), order="C")
             c = (
@@ -525,7 +528,19 @@ class SpaceshipPlanner:
                 <= 0
             )
             constraints += [c]
-        # #     print(f"Constraint: {c}")
+
+        boundaries = self.scenario.static_obstacles
+        for b in boundaries:
+            if isinstance(b.shape, LineString):
+                minx, miny, maxx, maxy = b.shape.bounds
+
+        constraints += [
+            self.variables["X"][0, :] - minx - (self.sg.l_f + self.sg.l_c) >= 0,
+            self.variables["X"][0, :] - maxx + (self.sg.l_f + self.sg.l_c) <= 0,
+            self.variables["X"][1, :] - miny - (self.sg.l_f + self.sg.l_c) >= 0,
+            self.variables["X"][1, :] - maxy + (self.sg.l_f + self.sg.l_c) <= 0,
+        ]
+
         return constraints
 
     def _jacobians_obstacles(self):
