@@ -589,31 +589,31 @@ class SpaceshipPlanner:
         """
         # TODO
         objective = 0
-        # for i in range(self.params.K - 1):
-        #     objective += cvx.norm(
-        #         0.5
-        #         / self.params.K
-        #         * (
-        #             self.variables["X"][0:6, i]
-        #             + self.variables["X"][0:6, i + 1]
-        #             - 2 * self.problem_parameters["goal_config"]
-        #         ),
-        #         "fro",
-        #     )
-        #     # objective += cvx.norm(
-        #     #     0.5
-        #     #     / self.params.K
-        #     #     * (
-        #     #         self.variables["X"][2, i]
-        #     #         + self.variables["X"][2, i + 1]
-        #     #         - 2 * self.problem_parameters["goal_config"][2]
-        #     #     ),
-        #     #     "fro",
-        #     # )
-        #     objective += cvx.norm(
-        #         2 * 0.5 / self.params.K * (self.variables["U"][:, i] + self.variables["U"][:, i + 1]) ** 2,
-        #         "fro",
-        #     )
+        for i in range(self.params.K - 1):
+            objective += cvx.norm(
+                0.5
+                / self.params.K
+                * (
+                    self.variables["X"][0:6, i]
+                    + self.variables["X"][0:6, i + 1]
+                    - 2 * self.problem_parameters["goal_config"]
+                ),
+                "fro",
+            )
+            # objective += cvx.norm(
+            #     0.5
+            #     / self.params.K
+            #     * (
+            #         self.variables["X"][2, i]
+            #         + self.variables["X"][2, i + 1]
+            #         - 2 * self.problem_parameters["goal_config"][2]
+            #     ),
+            #     "fro",
+            # )
+            objective += cvx.norm(
+                2 * 0.5 / self.params.K * (self.variables["U"][:, i] + self.variables["U"][:, i + 1]) ** 2,
+                "fro",
+            )
         objective += (
             1000 * cvx.sum(cvx.abs(1 / self.params.K * self.variables["v_dyn"]))
             + 1000 * cvx.sum(cvx.abs(self.variables["v_init_state"]))
@@ -622,42 +622,42 @@ class SpaceshipPlanner:
         )
 
         # add the final time
-        # objective += 0.001 * self.variables["p"]
+        objective += 0.001 * self.variables["p"]
         return cvx.Minimize(objective)
 
     def _get_non_discretize_objective(self, delta):
         objective = 0
-        # for i in range(self.params.K - 1):
-        #     objective += cvx.norm(
-        #         0.5
-        #         / self.params.K
-        #         * (
-        #             self.variables["X"][0:6, i]
-        #             + self.variables["X"][0:6, i + 1]
-        #             - 2 * self.problem_parameters["goal_config"]
-        #         ),
-        #         "fro",
-        #     )
-        #     # objective += cvx.norm(
-        #     #     0.5
-        #     #     / self.params.K
-        #     #     * (
-        #     #         self.variables["X"][2, i]
-        #     #         + self.variables["X"][2, i + 1]
-        #     #         - 2 * self.problem_parameters["goal_config"][2]
-        #     #     ),
-        #     #     "fro",
-        #     # )
-        #     objective += cvx.norm(
-        #         2 * 0.5 / self.params.K * (self.variables["U"][:, i] + self.variables["U"][:, i + 1]) ** 2,
-        #         "fro",
-        #     )
+        for i in range(self.params.K - 1):
+            objective += cvx.norm(
+                0.5
+                / self.params.K
+                * (
+                    self.variables["X"][0:6, i]
+                    + self.variables["X"][0:6, i + 1]
+                    - 2 * self.problem_parameters["goal_config"]
+                ),
+                "fro",
+            )
+            # objective += cvx.norm(
+            #     0.5
+            #     / self.params.K
+            #     * (
+            #         self.variables["X"][2, i]
+            #         + self.variables["X"][2, i + 1]
+            #         - 2 * self.problem_parameters["goal_config"][2]
+            #     ),
+            #     "fro",
+            # )
+            objective += cvx.norm(
+                2 * 0.5 / self.params.K * (self.variables["U"][:, i] + self.variables["U"][:, i + 1]) ** 2,
+                "fro",
+            )
         objective += 1000 * cvx.sum(cvx.abs(1 / self.params.K * delta))
         objective += 1000 * cvx.sum(cvx.abs(self.variables["X"][:, 0] - self.problem_parameters["init_state"]))
         objective += 1000 * cvx.sum(
             cvx.abs(self.variables["X"][0:6, self.params.K - 1] - self.problem_parameters["goal_config"])
         )
-        # objective += 0.001 * self.variables["p"]
+        objective += 0.001 * self.variables["p"]
         # for k in range(self.params.K):
         #     m = self.problem_parameters["C_planets"][:, k].reshape(
         #         (len(self.planets) * 3, self.n_x_obstacles), order="C"
