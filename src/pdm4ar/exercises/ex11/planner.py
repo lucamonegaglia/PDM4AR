@@ -156,7 +156,7 @@ class SpaceshipPlanner:
 
     def compute_trajectory(
         self, init_state: SpaceshipState, goal_state: SpaceshipTarget
-    ) -> tuple[DgSampledSequence[SpaceshipCommands], DgSampledSequence[SpaceshipState]]:
+    ) -> tuple[DgSampledSequence[SpaceshipCommands], DgSampledSequence[SpaceshipState], NDArray, NDArray]:
         """
         Compute a trajectory from init_state to goal_state.
         """
@@ -275,7 +275,14 @@ class SpaceshipPlanner:
             self.problem_parameters["X_bar"].T,
         )
 
-        return mycmds, mystates
+        zoh_integrator = ZeroOrderHold(self.spaceship, self.params.K, self.params.N_sub)
+        Ak, Bk, _, _ = zoh_integrator.calculate_discretization(
+            self.problem_parameters["X_bar"].value,
+            self.problem_parameters["U_bar"].value,
+            self.problem_parameters["p_bar"].value,
+        )
+
+        return mycmds, mystates, Ak.T, Bk.T
 
     def plot_predicted_and_real_results(self, iteration):
         x0 = self.problem_parameters["X_bar"].value[:, 0]
