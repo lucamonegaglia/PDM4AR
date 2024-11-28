@@ -10,11 +10,16 @@ from dg_commons.sim.models.obstacles_dyn import DynObstacleState
 from dg_commons.sim.models.spaceship import SpaceshipCommands, SpaceshipState
 from dg_commons.sim.models.spaceship_structures import SpaceshipGeometry, SpaceshipParameters
 
+from pdm4ar.exercises.ex10 import test_myscenario
 from pdm4ar.exercises.ex11.planner import SpaceshipPlanner
 from pdm4ar.exercises_def.ex11.goal import SpaceshipTarget, DockingTarget
 from pdm4ar.exercises_def.ex11.utils_params import PlanetParams, SatelliteParams
 
 import numpy as np
+import matplotlib
+from matplotlib import pyplot as plt
+
+matplotlib.use("Agg")
 
 
 @dataclass(frozen=True)
@@ -46,6 +51,8 @@ class SpaceshipAgent(Agent):
     static_obstacles: Sequence[StaticObstacle]
     sg: SpaceshipGeometry
     sp: SpaceshipParameters
+    X_error: np.ndarray
+    test_case: int
 
     def __init__(
         self,
@@ -88,6 +95,14 @@ class SpaceshipAgent(Agent):
             scenario=init_sim_obs.dg_scenario,
         )
 
+        self.X_error = np.zeros((8, 1))
+        if init_sim_obs.goal.target.x == 8.5:
+            self.test_case = 1
+        if init_sim_obs.goal.target.x == 23.0:
+            self.test_case = 2
+        if init_sim_obs.goal.target.x == 8.0:
+            self.test_case = 3
+
         #
         # TODO: Implement Compute Initial Trajectory
         #
@@ -110,6 +125,24 @@ class SpaceshipAgent(Agent):
 
         expected_state_vec = [expected_state.as_ndarray()[i].value for i in range(8)]
 
+        self.X_error = np.hstack((self.X_error, (current_state.as_ndarray() - expected_state_vec).reshape(-1, 1)))
+        if self.cmds_plan.get_end() - float(sim_obs.time) < 1:
+            fig, axs = plt.subplots(3, 1, figsize=(10, 15))
+            axs[0].plot(self.X_error[0, :].T)
+            axs[0].set_title("X error")
+            axs[0].set_xlabel("timesteps")
+
+            axs[1].plot(self.X_error[1, :].T)
+            axs[1].set_title("Y error")
+            axs[1].set_xlabel("timesteps")
+
+            axs[2].plot(self.X_error[2, :].T)
+            axs[2].set_title("Psi error")
+            axs[2].set_xlabel("timesteps")
+
+            plt.tight_layout()
+            plt.savefig(f"src/pdm4ar/exercises/ex11/plots/case{self.test_case}-sim2real.png")
+            plt.close()
         # if np.any(current_state.as_ndarray() - expected_state_vec > 0.01):
         #    print(f"Current - expected at time {sim_obs.time}: {current_state.as_ndarray() - expected_state_vec}")
 
