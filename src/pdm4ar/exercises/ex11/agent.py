@@ -153,18 +153,18 @@ class SpaceshipAgent(Agent):
         #
         # TODO: Implement scheme to replan
         #
-        # if np.any(current_state.as_ndarray() - expected_state_vec > 0.1):
-        #    self.cmds_plan, self.state_traj = self.planner.compute_trajectory(current_state, self.goal_state)
-        k = int(
-            50
-            * (float(sim_obs.time) - self.cmds_plan.get_start())
-            / (self.cmds_plan.get_end() - self.cmds_plan.get_start())
-        )
-        Ak = self.A[k].reshape((8, 8), order="F")
-        Bk = self.B[k].reshape((8, 2), order="F")
-        cmds = SpaceshipCommands.from_array(np.linalg.pinv(Bk) @ (expected_state_vec - Ak @ current_state.as_ndarray()))
-        np.clip(cmds.thrust, -2, 2, out=cmds.thrust)
-        np.clip(cmds.ddelta, -np.deg2rad(45), np.deg2rad(45), out=cmds.ddelta)
-        # cmds = self.cmds_plan.at_interp(sim_obs.time)
+        # # if np.any(current_state.as_ndarray() - expected_state_vec > 0.1):
+        # #    self.cmds_plan, self.state_traj = self.planner.compute_trajectory(current_state, self.goal_state)
+        # k = int(
+        #     50
+        #     * (float(sim_obs.time) - self.cmds_plan.get_start())
+        #     / (self.cmds_plan.get_end() - self.cmds_plan.get_start())
+        # )
+        # Ak = self.A[k].reshape((8, 8), order="F")
+        # Bk = self.B[k].reshape((8, 2), order="F")
+        # cmds = SpaceshipCommands.from_array(np.linalg.pinv(Bk) @ (expected_state_vec - Ak @ current_state.as_ndarray()))
+        # np.clip(cmds.thrust, -2, 2, out=cmds.thrust)
+        # np.clip(cmds.ddelta, -np.deg2rad(45), np.deg2rad(45), out=cmds.ddelta)
+        cmds = self.cmds_plan.at_interp(sim_obs.time)
 
         return cmds

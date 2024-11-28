@@ -129,7 +129,9 @@ class SpaceshipPlanner:
         self.is_docking = False
         if isinstance(goal_state, DockingTarget):
             self.is_docking = True
+            self.arms_length = goal_state.arms_length
         self.goal_state = goal_state.target
+
         # print(f"goal state: {goal_state.x} {goal_state.y}")
         # print(f"n_x and n_x_obstacles: {self.n_x} {self.n_x_obstacles}")
         self.dist_init_goal = cvx.norm(
@@ -289,7 +291,7 @@ class SpaceshipPlanner:
         integrated_X = self.integrator.integrate_nonlinear_full(
             x0, self.problem_parameters["U_bar"].value, self.problem_parameters["p_bar"].value
         )
-        fig, axs = plt.subplots(5, 2, figsize=(20, 15))
+        fig, axs = plt.subplots(6, 2, figsize=(20, 15))
 
         # Plot predicted position trajectory
         axs[0][0].plot(self.problem_parameters["X_bar"].value[0, :].T, self.problem_parameters["X_bar"].value[1, :].T)
@@ -354,6 +356,13 @@ class SpaceshipPlanner:
         axs[4][1].set_xlabel("Step")
         axs[4][1].set_ylabel("Mass")
 
+        # plot v_final_pose
+        axs[5][0].plot(self.variables["v_final_pose"].value.T)
+        axs[5][0].set_title("v_final_pose")
+        axs[5][0].set_xlabel("Step")
+        axs[5][0].set_ylabel("v_final_pose")
+        axs[5][0].legend(["V1", "V2", "V3", "V4"])
+
         if self.init_state.as_ndarray()[0] == -9.0:
             test_case = "1"
         elif self.goal_state.as_ndarray()[0] == 8.0:
@@ -412,6 +421,7 @@ class SpaceshipPlanner:
             "v_init_state": cvx.Variable(self.spaceship.n_x, name="v_init_state"),
             "v_goal_config": cvx.Variable(self.spaceship.n_x - 2, name="v_goal_config"),
             "v_s": cvx.Variable((len(self.planets)) + len(self.satellites), name="v_s"),
+            "v_final_pose": cvx.Variable(4, name="v_final_pose"),
             # "v_goal_coords": cvx.Variable(name="v_goal_coords"),
             # "v_goal_pose": cvx.Variable(name="v_goal_pose"),
             # "v_goal_vel": cvx.Variable(name="v_goal_vel"),
@@ -469,15 +479,14 @@ class SpaceshipPlanner:
         constraints = [
             # Initial state costraint (WAS ALREADY IN THE EXAMPLE)
             self.variables["X"][:, 0] - self.problem_parameters["init_state"] - self.variables["v_init_state"] == 0,
-            # Fix the final angle
-            self.variables["X"][2, self.params.K - 5] - self.problem_parameters["goal_config"][2] - 0.01 <= 0,
-            self.variables["X"][2, self.params.K - 4] - self.problem_parameters["goal_config"][2] - 0.01 <= 0,
-            self.variables["X"][2, self.params.K - 3] - self.problem_parameters["goal_config"][2] - 0.01 <= 0,
-            self.variables["X"][2, self.params.K - 2] - self.problem_parameters["goal_config"][2] - 0.01 <= 0,
             # Final state constraint
             self.variables["X"][0:6, self.params.K - 1]
             - self.problem_parameters["goal_config"]
             - self.variables["v_goal_config"]
+            == 0,
+            self.variables["X"][2, self.params.K - 5 : self.params.K - 1]
+            - self.problem_parameters["goal_config"][2] * np.ones(4)
+            - self.variables["v_final_pose"]
             == 0,
             # Input constraints
             self.variables["U"][:, 0] - np.zeros(self.spaceship.n_u) == 0,
@@ -510,10 +519,10 @@ class SpaceshipPlanner:
             <= 0,
         ]
 
-        # if isinstance(self.goal_state, DockingTarget):
+        # if self.is_docking:
         #     intermediate_pose = self.problem_parameters["goal_config"].value
-        #     intermediate_pose[0] = intermediate_pose[0] - self.goal_state.arms_length * np.cos(intermediate_pose[2])
-        #     intermediate_pose[1] = intermediate_pose[1] - self.goal_state.arms_length * np.sin(intermediate_pose[2])
+        #     intermediate_pose[0] = intermediate_pose[0] - self.arms_length * np.cos(intermediate_pose[2])
+        #     intermediate_pose[1] = intermediate_pose[1] - self.arms_length * np.sin(intermediate_pose[2])
         #     constraints += [
         #         self.variables["X"][0:6, self.params.K - 5] - intermediate_pose == 0,
         #     ]
@@ -659,13 +668,14 @@ class SpaceshipPlanner:
                 "fro",
             )
             objective += cvx.sum(
-                10 * 0.5 / self.params.K * (self.variables["U"][:, i] - self.variables["U"][:, i + 1]) ** 2
+                100 * 0.5 / self.params.K * (self.variables["U"][:, i] - self.variables["U"][:, i + 1]) ** 2
             )
         objective += (
             1000 * cvx.sum(cvx.abs(1 / self.params.K * self.variables["v_dyn"]))
             + 1000 * cvx.sum(cvx.abs(self.variables["v_init_state"]))
             + 1000 * cvx.sum(cvx.abs(self.variables["v_goal_config"]))
             + 1000 * cvx.sum(cvx.abs(self.variables["v_s"]))
+            + 10 * cvx.sum(cvx.abs(self.variables["v_final_pose"]))
         )
         # add the final time
         objective += 0.001 * self.variables["p"]
@@ -699,13 +709,20 @@ class SpaceshipPlanner:
                 "fro",
             )
             objective += cvx.sum(
-                10 * 0.5 / self.params.K * (self.variables["U"][:, i] - self.variables["U"][:, i + 1]) ** 2
+                100 * 0.5 / self.params.K * (self.variables["U"][:, i] - self.variables["U"][:, i + 1]) ** 2
             )
         objective += 1000 * cvx.sum(cvx.abs(1 / self.params.K * delta))
         objective += 1000 * cvx.sum(cvx.abs(self.variables["X"][:, 0] - self.problem_parameters["init_state"]))
         objective += 1000 * cvx.sum(
             cvx.abs(self.variables["X"][0:6, self.params.K - 1] - self.problem_parameters["goal_config"])
         )
+        objective += 10 * cvx.sum(
+            cvx.abs(
+                self.variables["X"][2][self.params.K - 5 : self.params.K - 1]
+                - self.problem_parameters["goal_config"][2] * np.ones(4)
+            )
+        )
+
         objective += 0.001 * self.variables["p"]
         # for k in range(self.params.K):
         #     m = self.problem_parameters["C_planets"][:, k].reshape(
