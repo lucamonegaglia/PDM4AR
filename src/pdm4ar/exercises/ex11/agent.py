@@ -88,6 +88,7 @@ class SpaceshipAgent(Agent):
         self.satellites = satellites
         self.planets = planets
         self.plotted = False
+        self.goal_state = None  # This will be set in on_episode_init
 
     def on_episode_init(self, init_sim_obs: InitSimObservations):
         """
@@ -114,7 +115,8 @@ class SpaceshipAgent(Agent):
             init_state=self.init_state,
             scenario=init_sim_obs.dg_scenario,
         )
-
+        self.goal = init_sim_obs.goal.target
+        self.plotted = False
         self.X_error = np.zeros((8, 1))
         if init_sim_obs.goal.target.x == 8.5:
             self.test_case = 1
@@ -145,7 +147,7 @@ class SpaceshipAgent(Agent):
         for i in range(8):
             self.X_interp[i, :] = np.interp(new_times, original_times, X_bar[i, :])
 
-        self.N = 20  # Prediction horizon
+        self.N = 30  # Prediction horizon
         Q = np.eye(8)  # State tracking cost
         # R = 0.1 * np.eye(2)  #
         self.x_ref_window = cvx.Parameter((8, self.N + 1))
@@ -205,7 +207,8 @@ class SpaceshipAgent(Agent):
         expected_state_vec = [expected_state.as_ndarray()[i].value for i in range(8)]
 
         self.X_error = np.hstack((self.X_error, (current_state.as_ndarray() - expected_state_vec).reshape(-1, 1)))
-        if self.cmds_plan.get_end() - float(sim_obs.time) < 2 and not self.plotted:
+        print(f"Error at time {sim_obs.time}: {self.X_error[0:2, -1]}")
+        if self.cmds_plan.get_end() - float(sim_obs.time) < 3 and not self.plotted:
             self.plotted = True
             print(f"Plotting case {self.test_case}")
             fig, axs = plt.subplots(3, 1, figsize=(10, 15))
