@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+
 from typing import Sequence
 
 from dg_commons import DgSampledSequence, PlayerName
@@ -18,6 +19,8 @@ from pdm4ar.exercises_def.ex11.utils_params import PlanetParams, SatelliteParams
 import numpy as np
 import matplotlib
 from matplotlib import pyplot as plt
+import cvxpy as cvx
+import time
 
 matplotlib.use("Agg")
 
@@ -55,6 +58,20 @@ class SpaceshipAgent(Agent):
     test_case: int
     A: np.ndarray
     B: np.ndarray
+    F: np.ndarray
+    r: np.ndarray
+    plotted = False
+    X_interp: np.ndarray
+    prob: cvx.Problem
+    Ak: cvx.Parameter
+    Bk: cvx.Parameter
+    Fk: cvx.Parameter
+    rk: cvx.Parameter
+    x_current: cvx.Parameter
+    x_ref_window: cvx.Parameter
+    x: cvx.Variable
+    u: cvx.Variable
+    N: int
 
     def __init__(
         self,
@@ -105,14 +122,69 @@ class SpaceshipAgent(Agent):
             self.test_case = 2
         if init_sim_obs.goal.target.x == 8.0:
             self.test_case = 3
+        self.plotted = False
 
         #
         # TODO: Implement Compute Initial Trajectory
         #
 
-        self.cmds_plan, self.state_traj, self.A, self.B = self.planner.compute_trajectory(
+        self.cmds_plan, self.state_traj, self.A, self.B, self.F, self.r = self.planner.compute_trajectory(
             self.init_state, init_sim_obs.goal
         )
+        # print(f"p: {self.cmds_plan.get_end()}")
+        X_bar = np.zeros((8, 50))
+        for i, v in enumerate(self.state_traj._values):
+            for j in range(8):
+                X_bar[j, i] = v.as_ndarray()[j].value
+
+        num_steps = int(float(self.cmds_plan.get_end()) / 0.1) + 1  # number of 0.1s timesteps
+        new_times = np.linspace(0, float(self.cmds_plan.get_end()), num_steps)
+        original_times = np.linspace(0, float(self.cmds_plan.get_end()), 50)  # for your K=50 trajectory
+
+        self.X_interp = np.zeros((8, num_steps))
+        for i in range(8):
+            self.X_interp[i, :] = np.interp(new_times, original_times, X_bar[i, :])
+
+        self.N = 20  # Prediction horizon
+        Q = np.eye(8)  # State tracking cost
+        # R = 0.1 * np.eye(2)  #
+        self.x_ref_window = cvx.Parameter((8, self.N + 1))
+        self.x_current = cvx.Parameter(8)
+        self.Ak = cvx.Parameter((self.N + 1, 64))
+        self.Bk = cvx.Parameter((self.N + 1, 16))
+        self.Fk = cvx.Parameter((self.N + 1, 8))
+        self.rk = cvx.Parameter((self.N + 1, 8))
+        self.x_ref_window.value = self.X_interp[:, 0 : self.N + 1]
+        self.Ak.value = self.A[0 : self.N + 1, :]
+        self.Bk.value = self.B[0 : self.N + 1, :]
+        self.Fk.value = self.F[0 : self.N + 1, :]
+        self.rk.value = self.r[0 : self.N + 1, :]
+
+        self.x = cvx.Variable((8, self.N + 1))
+        self.u = cvx.Variable((2, self.N))
+        cost = 0
+        constraints = []
+        for i in range(self.N):
+
+            cost += cvx.quad_form(self.x[:, i] - self.x_ref_window[:, i], Q)
+            constraints += [
+                self.x[:, i + 1]
+                == self.Ak[i].reshape((8, 8), order="F") @ self.x[:, i]
+                + self.Bk[i].reshape((8, 2), order="F") @ self.u[:, i]
+                + self.rk[i]
+                + self.Fk[i] * float(self.cmds_plan.get_end())
+            ]
+            constraints += [
+                self.u[0, :] <= 2,
+                self.u[0, :] >= -2,
+                self.u[1, :] <= np.deg2rad(45),
+                self.u[1, :] >= -np.deg2rad(45),
+            ]
+        constraints += [self.x[:, 0] == self.x_current]  # Initial condition
+        cost += cvx.quad_form(self.x[:, self.N] - self.x_ref_window[:, self.N], Q)  # Terminal cost
+
+        # Solve MPC
+        self.prob = cvx.Problem(cvx.Minimize(cost), constraints)
 
     def get_commands(self, sim_obs: SimObservations) -> SpaceshipCommands:
         """
@@ -126,8 +198,10 @@ class SpaceshipAgent(Agent):
         Do **not** modify the signature of this method.
         """
         current_state = sim_obs.players[self.myname].state
+        next_desired_state = self.state_traj.at_interp(float(sim_obs.time) + 0.1)
         expected_state = self.state_traj.at_interp(sim_obs.time)
 
+        next_desired_state_vec = [next_desired_state.as_ndarray()[i].value for i in range(8)]
         expected_state_vec = [expected_state.as_ndarray()[i].value for i in range(8)]
 
         self.X_error = np.hstack((self.X_error, (current_state.as_ndarray() - expected_state_vec).reshape(-1, 1)))
@@ -156,18 +230,52 @@ class SpaceshipAgent(Agent):
         #
         # TODO: Implement scheme to replan
         #
-        # # if np.any(current_state.as_ndarray() - expected_state_vec > 0.1):
-        # #    self.cmds_plan, self.state_traj = self.planner.compute_trajectory(current_state, self.goal_state)
-        # k = int(
-        #     50
-        #     * (float(sim_obs.time) - self.cmds_plan.get_start())
-        #     / (self.cmds_plan.get_end() - self.cmds_plan.get_start())
-        # )
-        # Ak = self.A[k].reshape((8, 8), order="F")
-        # Bk = self.B[k].reshape((8, 2), order="F")
-        # cmds = SpaceshipCommands.from_array(np.linalg.pinv(Bk) @ (expected_state_vec - Ak @ current_state.as_ndarray()))
-        # np.clip(cmds.thrust, -2, 2, out=cmds.thrust)
-        # np.clip(cmds.ddelta, -np.deg2rad(45), np.deg2rad(45), out=cmds.ddelta)
-        cmds = self.cmds_plan.at_interp(sim_obs.time)
+        # if np.any(current_state.as_ndarray() - expected_state_vec > 0.1):
+        #    self.cmds_plan, self.state_traj = self.planner.compute_trajectory(current_state, self.goal_state)
+        # k = int(10 * (float(sim_obs.time) - self.cmds_plan.get_start()))
+        # if k >= self.cmds_plan.get_end() / 0.1 - 1:
+        #     return SpaceshipCommands.from_array(np.zeros((2)))
+        # else:
+        #     Ak = self.A[k].reshape((8, 8), order="F")
+        #     Bk = self.B[k].reshape((8, 2), order="F")
+        #     p = self.cmds_plan.get_end()
+        #     cmds = np.linalg.pinv(Bk) @ (
+        #         next_desired_state_vec - Ak @ current_state.as_ndarray() - self.r[k] - self.F[k] * p
+        #     )
 
-        return cmds
+        #     cmds[0] = np.clip(cmds[0], -2, 2)
+        #     cmds[1] = np.clip(cmds[1], -np.deg2rad(45), np.deg2rad(45))
+        #     print(
+        #         f"Command difference at {k}: thrust{cmds[0] - self.cmds_plan.at_interp(sim_obs.time).thrust} ddelta{cmds[1] - self.cmds_plan.at_interp(sim_obs.time).ddelta}"
+        #     )
+
+        #     # cmds = 0.5 * cmds + 0.5 * self.cmds_plan.at_interp(sim_obs.time).as_ndarray()
+        #     # cmds = self.cmds_plan.at_interp(sim_obs.time)
+
+        #     return SpaceshipCommands.from_array(cmds)
+        use_mpc = True
+        if use_mpc == False:
+            return self.cmds_plan.at_interp(sim_obs.time)
+        else:
+            start_time = time.time()
+
+            k = int(1 / 0.1 * (float(sim_obs.time) - float(self.cmds_plan.get_start())))
+
+            # update parameters
+            if k < self.X_interp.shape[1] - self.N - 1:
+
+                self.Ak.value = self.A[k : k + self.N + 1, :]
+                self.Bk.value = self.B[k : k + self.N + 1, :]
+                self.Fk.value = self.F[k : k + self.N + 1, :]
+                self.rk.value = self.r[k : k + self.N + 1, :]
+                self.x_ref_window.value = self.X_interp[:, k : k + self.N + 1]
+                self.x_current.value = current_state.as_ndarray()  # Initial state
+
+                self.prob.solve()
+                solve_time = time.time() - start_time
+                # print(
+                #     f"Solve time: {solve_time}, cmds diff: {self.u.value[:, 0] - self.cmds_plan.at_interp(sim_obs.time).as_ndarray()}"
+                # )
+                return SpaceshipCommands.from_array(self.u.value[:, 0])
+            else:
+                return self.cmds_plan.at_interp(sim_obs.time)

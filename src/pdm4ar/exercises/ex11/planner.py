@@ -37,7 +37,7 @@ class SolverParameters:
     """
 
     # Cvxpy solver parameters
-    solver: str = "ECOS"  # specify solver to use
+    solver: str = "CLARABEL"  # specify solver to use
     verbose_solver: bool = False  # if True, the optimization steps are shown
     max_iterations: int = 100  # max algorithm iterations
 
@@ -161,7 +161,9 @@ class SpaceshipPlanner:
 
     def compute_trajectory(
         self, init_state: SpaceshipState, goal_state: SpaceshipTarget
-    ) -> tuple[DgSampledSequence[SpaceshipCommands], DgSampledSequence[SpaceshipState], NDArray, NDArray]:
+    ) -> tuple[
+        DgSampledSequence[SpaceshipCommands], DgSampledSequence[SpaceshipState], NDArray, NDArray, NDArray, NDArray
+    ]:
         """
         Compute a trajectory from init_state to goal_state.
         """
@@ -193,9 +195,9 @@ class SpaceshipPlanner:
                 self.old_objective = self.problem.objective.value
             try:
                 error = self.problem.solve(
-                    verbose=self.params.verbose_solver, solver=cvx.CLARABEL, canon_backend=cvx.SCIPY_CANON_BACKEND
+                    verbose=self.params.verbose_solver, solver=self.params.solver, canon_backend=cvx.SCIPY_CANON_BACKEND
                 )
-                print(f"Iteration {iteration + 1} error: {error}")
+                # print(f"Iteration {iteration + 1} error: {error}")
                 print(f"Iteration {iteration + 1} objective value: {self.problem.objective.value}")
                 self.new_objective = self.problem.objective.value
             except cvx.SolverError:
@@ -279,15 +281,27 @@ class SpaceshipPlanner:
             self.problem_parameters["U_bar"].value[1],
             self.problem_parameters["X_bar"].T,
         )
+        p = self.problem_parameters["p_bar"].value[0]
+        X_bar = self.problem_parameters["X_bar"].value
+        U_bar = self.problem_parameters["U_bar"].value
+        num_steps = int(p / 0.1) + 1  # number of 0.1s timesteps
+        new_times = np.linspace(0, p, num_steps)
 
-        zoh_integrator = ZeroOrderHold(self.spaceship, self.params.K, self.params.N_sub)
-        Ak, Bk, _, _ = zoh_integrator.calculate_discretization(
-            self.problem_parameters["X_bar"].value,
-            self.problem_parameters["U_bar"].value,
-            self.problem_parameters["p_bar"].value,
+        # Create interpolated trajectories at 0.1s intervals
+        # Assuming you have a time vector for your original trajectories
+        original_times = np.linspace(0, p, 50)  # for your K=50 trajectory
+
+        X_interp = np.zeros((X_bar.shape[0], num_steps))
+        U_interp = np.zeros((U_bar.shape[0], num_steps))
+        for i in range(X_bar.shape[0]):
+            X_interp[i, :] = np.interp(new_times, original_times, X_bar[i, :])
+        for i in range(U_bar.shape[0]):
+            U_interp[i, :] = np.interp(new_times, original_times, U_bar[i, :])
+        zoh_integrator = ZeroOrderHold(self.spaceship, num_steps, self.params.N_sub)
+        Ak, Bk, Fk, rk = zoh_integrator.calculate_discretization(
+            X_interp, U_interp, self.problem_parameters["p_bar"].value
         )
-
-        return mycmds, mystates, Ak.T, Bk.T
+        return mycmds, mystates, Ak.T, Bk.T, Fk.T, rk.T
 
     def plot_predicted_and_real_results(self, iteration):
         x0 = self.problem_parameters["X_bar"].value[:, 0]
