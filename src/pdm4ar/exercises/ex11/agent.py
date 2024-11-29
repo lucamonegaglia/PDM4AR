@@ -70,6 +70,7 @@ class SpaceshipAgent(Agent):
         self.init_state = init_state
         self.satellites = satellites
         self.planets = planets
+        self.plotted = False
 
     def on_episode_init(self, init_sim_obs: InitSimObservations):
         """
@@ -130,7 +131,9 @@ class SpaceshipAgent(Agent):
         expected_state_vec = [expected_state.as_ndarray()[i].value for i in range(8)]
 
         self.X_error = np.hstack((self.X_error, (current_state.as_ndarray() - expected_state_vec).reshape(-1, 1)))
-        if self.cmds_plan.get_end() - float(sim_obs.time) < 1:
+        if self.cmds_plan.get_end() - float(sim_obs.time) < 2 and not self.plotted:
+            self.plotted = True
+            print(f"Plotting case {self.test_case}")
             fig, axs = plt.subplots(3, 1, figsize=(10, 15))
             axs[0].plot(self.X_error[0, :].T)
             axs[0].set_title("X error")

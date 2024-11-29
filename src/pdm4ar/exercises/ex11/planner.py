@@ -19,6 +19,7 @@ from shapely.geometry import LineString
 
 from pdm4ar.exercises.ex11.discretization import *
 
+from pdm4ar.exercises_def.ex09 import goal
 from pdm4ar.exercises_def.ex11.utils_params import PlanetParams, SatelliteParams
 from pdm4ar.exercises_def.ex11.goal import SpaceshipTarget, DockingTarget
 
@@ -130,6 +131,8 @@ class SpaceshipPlanner:
         if isinstance(goal_state, DockingTarget):
             self.is_docking = True
             self.arms_length = goal_state.arms_length
+            A, B, C, self.A1, self.A2, p = goal_state.get_landing_constraint_points()
+            print(f"A {self.A1} a2 {self.A2}")
         self.goal_state = goal_state.target
 
         # print(f"goal state: {goal_state.x} {goal_state.y}")
@@ -422,6 +425,7 @@ class SpaceshipPlanner:
             "v_goal_config": cvx.Variable(self.spaceship.n_x - 2, name="v_goal_config"),
             "v_s": cvx.Variable((len(self.planets)) + len(self.satellites), name="v_s"),
             "v_final_pose": cvx.Variable(4, name="v_final_pose"),
+            "v_dock_costraint": cvx.Variable(1, name="v_dock_costraint"),
             # "v_goal_coords": cvx.Variable(name="v_goal_coords"),
             # "v_goal_pose": cvx.Variable(name="v_goal_pose"),
             # "v_goal_vel": cvx.Variable(name="v_goal_vel"),
@@ -564,6 +568,26 @@ class SpaceshipPlanner:
             self.variables["X"][1, :] - maxy + (self.sg.l_f + self.sg.l_c) <= 0,
         ]
 
+        if self.is_docking:
+            y2 = self.A2[1]
+            x2 = self.A2[0]
+            y1 = self.A1[1]
+            x1 = self.A1[0]
+            m = (y2 - y1) / (x2 - x1)
+            b = y1 - m * x1
+            if (
+                -m * self.problem_parameters["init_state"][0].value + self.problem_parameters["init_state"][1].value - b
+                <= -self.sg.l_r
+            ):
+                constraints += [
+                    -m * self.variables["X"][0, :] + self.variables["X"][1, :] - b
+                    <= -self.sg.l_r - 0.1 - self.variables["v_dock_costraint"]
+                ]
+            else:
+                constraints += [
+                    -m * self.variables["X"][0, :] + self.variables["X"][1, :] - b
+                    >= +self.sg.l_r + 0.1 + self.variables["v_dock_costraint"]
+                ]
         return constraints
 
     def _jacobians_obstacles(self):
@@ -642,17 +666,38 @@ class SpaceshipPlanner:
         """
         # TODO
         objective = 0
+        initial_pose = self.problem_parameters["goal_config"][2]
         for i in range(self.params.K - 1):
             objective += cvx.norm(
                 0.5
                 / self.params.K
                 * (
-                    self.variables["X"][0:6, i]
-                    + self.variables["X"][0:6, i + 1]
-                    - 2 * self.problem_parameters["goal_config"]
+                    self.variables["X"][0:1, i]
+                    + self.variables["X"][0:1, i + 1]
+                    - 2 * self.problem_parameters["goal_config"][0:1]
                 ),
                 "fro",
             )
+            objective += cvx.norm(
+                10 * 0.5 / self.params.K * (self.variables["X"][3:4, i] + self.variables["X"][3:4, i + 1]),
+                "fro",
+            )
+            if i >= 40:
+                objective += cvx.norm(
+                    5
+                    * 0.5
+                    / self.params.K
+                    * (
+                        self.variables["X"][2, i]
+                        + self.variables["X"][2, i + 1]
+                        - 2 * self.problem_parameters["goal_config"][2]
+                    ),
+                    "fro",
+                )
+
+            # objective += cvx.sum(
+            #     10 * 0.5 / self.params.K * (self.variables["X"][2, i] - self.variables["X"][2, i + 1]) ** 2
+            # )
             # objective += cvx.norm(
             #     0.5
             #     / self.params.K
@@ -664,7 +709,7 @@ class SpaceshipPlanner:
             #     "fro",
             # )
             objective += cvx.norm(
-                2 * 0.5 / self.params.K * (self.variables["U"][:, i] + self.variables["U"][:, i + 1]) ** 2,
+                0.5 / self.params.K * (self.variables["U"][:, i] + self.variables["U"][:, i + 1]) ** 2,
                 "fro",
             )
             objective += cvx.sum(
@@ -675,6 +720,7 @@ class SpaceshipPlanner:
             + 1000 * cvx.sum(cvx.abs(self.variables["v_init_state"]))
             + 1000 * cvx.sum(cvx.abs(self.variables["v_goal_config"]))
             + 1000 * cvx.sum(cvx.abs(self.variables["v_s"]))
+            + 10 * cvx.sum(cvx.abs(self.variables["v_dock_costraint"]))
             + 10 * cvx.sum(cvx.abs(self.variables["v_final_pose"]))
         )
         # add the final time
@@ -683,17 +729,38 @@ class SpaceshipPlanner:
 
     def _get_non_discretize_objective(self, delta):
         objective = 0
+        initial_pose = self.problem_parameters["goal_config"][2]
         for i in range(self.params.K - 1):
             objective += cvx.norm(
                 0.5
                 / self.params.K
                 * (
-                    self.variables["X"][0:6, i]
-                    + self.variables["X"][0:6, i + 1]
-                    - 2 * self.problem_parameters["goal_config"]
+                    self.variables["X"][0:1, i]
+                    + self.variables["X"][0:1, i + 1]
+                    - 2 * self.problem_parameters["goal_config"][0:1]
                 ),
                 "fro",
             )
+            objective += cvx.norm(
+                10 * 0.5 / self.params.K * (self.variables["X"][3:4, i] + self.variables["X"][3:4, i + 1]),
+                "fro",
+            )
+            if i >= 40:
+                objective += cvx.norm(
+                    5
+                    * 0.5
+                    / self.params.K
+                    * (
+                        self.variables["X"][2, i]
+                        + self.variables["X"][2, i + 1]
+                        - 2 * self.problem_parameters["goal_config"][2]
+                    ),
+                    "fro",
+                )
+
+            # objective += cvx.sum(
+            #     10 * 0.5 / self.params.K * (self.variables["X"][2, i] - self.variables["X"][2, i + 1]) ** 2
+            # )
             # objective += cvx.norm(
             #     0.5
             #     / self.params.K
@@ -705,7 +772,7 @@ class SpaceshipPlanner:
             #     "fro",
             # )
             objective += cvx.norm(
-                2 * 0.5 / self.params.K * (self.variables["U"][:, i] + self.variables["U"][:, i + 1]) ** 2,
+                0.5 / self.params.K * (self.variables["U"][:, i] + self.variables["U"][:, i + 1]) ** 2,
                 "fro",
             )
             objective += cvx.sum(
@@ -737,6 +804,24 @@ class SpaceshipPlanner:
             s_matrix[:, k] = self.s_function(x, k, self.variables["p"][0].value).flatten()
         max_s = np.max(s_matrix, 1)
         objective += 1000 * np.sum(max_s[max_s > 0])
+
+        if self.is_docking:
+            y2 = self.A2[1]
+            x2 = self.A2[0]
+            y1 = self.A1[1]
+            x1 = self.A1[0]
+            m = (y2 - y1) / (x2 - x1)
+            b = y1 - m * x1
+            if (
+                -m * self.problem_parameters["init_state"][0].value + self.problem_parameters["init_state"][1].value - b
+                <= self.sg.l_r
+            ):
+                v = -m * self.variables["X"][0, :].value + self.variables["X"][1, :].value - b + self.sg.l_r + 0.1
+                objective += 10 * np.sum(v[v >= 0])
+            else:
+                v = -m * self.variables["X"][0, :].value + self.variables["X"][1, :].value - b - self.sg.l_r - 0.1
+                objective += 10 * np.sum(v[v <= 0])
+
         return objective.value
 
     def _convexification(self):
