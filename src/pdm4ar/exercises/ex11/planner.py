@@ -3,6 +3,7 @@ from dataclasses import dataclass, field
 from hmac import new
 from os import error
 from typing import Union
+from sklearn.covariance import MinCovDet
 import sympy as spy
 import numpy as np
 
@@ -132,7 +133,7 @@ class SpaceshipPlanner:
         if isinstance(goal_state, DockingTarget):
             self.is_docking = True
             self.arms_length = goal_state.arms_length
-            self.A, B, C, self.A1, self.A2, p = goal_state.get_landing_constraint_points()
+            self.A, self.B, self.C, self.A1, self.A2, p = goal_state.get_landing_constraint_points()
             print(f"A {self.A1} a2 {self.A2}")
         self.goal_state = goal_state.target
 
@@ -554,9 +555,9 @@ class SpaceshipPlanner:
             "v_dyn": cvx.Variable((self.spaceship.n_x, self.params.K - 1), name="v_dyn"),
             "v_init_state": cvx.Variable(self.spaceship.n_x, name="v_init_state"),
             "v_goal_config": cvx.Variable(self.spaceship.n_x - 2, name="v_goal_config"),
-            "v_s": cvx.Variable((len(self.planets)) + len(self.satellites) + 1, name="v_s"),
+            "v_s": cvx.Variable((len(self.planets)) + len(self.satellites), name="v_s"),
             "v_final_pose": cvx.Variable(4, name="v_final_pose"),
-            "v_dock_costraint": cvx.Variable(1, name="v_dock_costraint"),
+            "v_cone": cvx.Variable(1, name="v_cone"),
             "v_boundaries": cvx.Variable(1, name="v_boundaries"),
             # "v_goal_coords": cvx.Variable(name="v_goal_coords"),
             # "v_goal_pose": cvx.Variable(name="v_goal_pose"),
@@ -584,10 +585,10 @@ class SpaceshipPlanner:
             "deltau": cvx.Parameter((self.n_u, self.params.K), name="deltau"),
             "deltap": cvx.Parameter(self.n_p, name="deltap"),
             "C_planets": cvx.Parameter(
-                ((len(self.planets) + len(self.satellites) + 1) * self.n_x_obstacles, self.params.K), name="C_planets"
+                ((len(self.planets) + len(self.satellites)) * self.n_x_obstacles, self.params.K), name="C_planets"
             ),
-            "r_planets": cvx.Parameter((len(self.planets) + len(self.satellites) + 1, self.params.K), name="r_planets"),
-            "G_planets": cvx.Parameter((len(self.planets) + len(self.satellites) + 1, self.params.K), name="G_planets"),
+            "r_planets": cvx.Parameter((len(self.planets) + len(self.satellites), self.params.K), name="r_planets"),
+            "G_planets": cvx.Parameter((len(self.planets) + len(self.satellites), self.params.K), name="G_planets"),
             # "C_times_X": cvx.Parameter((len(self.planets) * 3, self.params.K), name="C_times_X"),
             # "S_matrix": cvx.Parameter((len(self.planets) * 3, self.params.K), name="S_matrix"),
         }
@@ -655,13 +656,13 @@ class SpaceshipPlanner:
             <= 0,
         ]
 
-        if self.is_docking:
-            intermediate_pose = self.problem_parameters["goal_config"].value
-            intermediate_pose[0] = intermediate_pose[0] + self.arms_length / 2 * np.cos(intermediate_pose[2])
-            intermediate_pose[1] = intermediate_pose[1] + self.arms_length / 2 * np.sin(intermediate_pose[2])
-            constraints += [
-                self.variables["X"][0:6, self.params.K - 2] - intermediate_pose == 0,
-            ]
+        # if self.is_docking:
+        #     intermediate_pose = self.problem_parameters["goal_config"].value
+        #     intermediate_pose[0] = intermediate_pose[0] + self.arms_length / 2 * np.cos(intermediate_pose[2])
+        #     intermediate_pose[1] = intermediate_pose[1] + self.arms_length / 2 * np.sin(intermediate_pose[2])
+        #     constraints += [
+        #         self.variables["X"][0:6, self.params.K - 2] - intermediate_pose == 0,
+        #     ]
         # Dynamic constraints
         # TODO vettorizzare usando cvx.matmul se si riesce, ma si lamenta perchè non sa gestire 3 dimensioni
         constraints += [
@@ -678,7 +679,7 @@ class SpaceshipPlanner:
         # obstacle avoidance of planets
         for k in range(self.params.K):
             m = self.problem_parameters["C_planets"][:, k].reshape(
-                (len(self.planets) + len(self.satellites) + 1, self.n_x_obstacles), order="C"
+                (len(self.planets) + len(self.satellites), self.n_x_obstacles), order="C"
             )
             c = (
                 cvx.matmul(m, self.variables["X"][: self.n_x_obstacles, k])
@@ -694,33 +695,59 @@ class SpaceshipPlanner:
                 self.minx, self.miny, self.maxx, self.maxy = b.shape.bounds
 
         constraints += [
-            self.variables["X"][0, :] - self.minx - (self.sg.l_f + self.sg.l_c + self.variables["v_boundaries"]) >= 0,
-            self.variables["X"][0, :] - self.maxx + (self.sg.l_f + self.sg.l_c + self.variables["v_boundaries"]) <= 0,
-            self.variables["X"][1, :] - self.miny - (self.sg.l_f + self.sg.l_c + self.variables["v_boundaries"]) >= 0,
-            self.variables["X"][1, :] - self.maxy + (self.sg.l_f + self.sg.l_c + self.variables["v_boundaries"]) <= 0,
+            self.variables["X"][0, :] - self.minx - (self.sg.l_f + self.sg.l_c + 0.2 + self.variables["v_boundaries"])
+            >= 0,
+            self.variables["X"][0, :] - self.maxx + (self.sg.l_f + self.sg.l_c + 0.2 + self.variables["v_boundaries"])
+            <= 0,
+            self.variables["X"][1, :] - self.miny - (self.sg.l_f + self.sg.l_c + 0.2 + self.variables["v_boundaries"])
+            >= 0,
+            self.variables["X"][1, :] - self.maxy + (self.sg.l_f + self.sg.l_c + 0.2 + self.variables["v_boundaries"])
+            <= 0,
         ]
 
-        # if self.is_docking:
-        #     y2 = self.A2[1]
-        #     x2 = self.A2[0]
-        #     y1 = self.A1[1]
-        #     x1 = self.A1[0]
-        #     xA = self.A[0]
-        #     yA = self.A[1]
-        #     m = (y2 - y1) / (x2 - x1)
-        #     b = y1 - m * x1
-        #     if -m * xA + yA - b <= 0:
-        #         print("Docking on the left")
-        #         constraints += [
-        #             -m * self.variables["X"][0, self.params.K - 7 :] + self.variables["X"][1, self.params.K - 7 :] - b
-        #             <= -self.sg.l_r - 0.1 - self.variables["v_dock_costraint"]
-        #         ]
-        #     else:
-        #         print("Docking on the right")
-        #         constraints += [
-        #             -m * self.variables["X"][0, self.params.K - 7 :] + self.variables["X"][1, self.params.K - 7 :] - b
-        #             >= +self.sg.l_r + 0.1 + self.variables["v_dock_costraint"]
-        #         ]
+        if self.is_docking:
+            By = self.B[1]
+            Bx = self.B[0]
+            Cy = self.C[1]
+            Cx = self.C[0]
+            xA = self.A[0]
+            yA = self.A[1]
+            mB = (By - yA) / (Bx - xA)
+            bB = yA - mB * xA
+            mC = (Cy - yA) / (Cx - xA)
+            bC = yA - mC * xA
+            if By - mC * Bx - bC > 0:
+                constraints += [
+                    self.variables["X"][1, self.params.K - 10 :]
+                    - mC * self.variables["X"][0, self.params.K - 10 :]
+                    - bC
+                    >= self.variables["v_cone"]
+                ]
+                print("y - ", mC, "x - ", bC, " > =0")
+            else:
+                constraints += [
+                    self.variables["X"][1, self.params.K - 10 :]
+                    - mC * self.variables["X"][0, self.params.K - 10 :]
+                    - bC
+                    <= -self.variables["v_cone"]
+                ]
+                print("y - ", mC, "x - ", bC, " < =0")
+            if Cy - mB * Cx - bB > 0:
+                constraints += [
+                    self.variables["X"][1, self.params.K - 10 :]
+                    - mB * self.variables["X"][0, self.params.K - 10 :]
+                    - bB
+                    >= self.variables["v_cone"]
+                ]
+                print("y - ", mB, "x - ", bB, " > =0")
+            else:
+                constraints += [
+                    self.variables["X"][1, self.params.K - 10 :]
+                    - mB * self.variables["X"][0, self.params.K - 10 :]
+                    - bB
+                    <= -self.variables["v_cone"]
+                ]
+                print("y - ", mB, "x - ", bB, " < =0")
         return constraints
 
     def _jacobians_obstacles(self):
@@ -733,7 +760,7 @@ class SpaceshipPlanner:
         # array of C, D, G matrixes and r vectors
 
         # TODO: change the following dimensions after adding satellites
-        s_function = spy.zeros(len(self.planets) + len(self.satellites) + 1, 1)
+        s_function = spy.zeros(len(self.planets) + len(self.satellites), 1)
         i = 0
         for planet in self.planets.values():
             # to check collision with each obtacle we create 3 circles around the different parts
@@ -779,17 +806,6 @@ class SpaceshipPlanner:
                 (satellite.radius + 3 * self.sg.l_r) ** 2 - (x[0] - x_satellite) ** 2 - (x[1] - y_satellite) ** 2
             )
             i += 1
-        if self.is_docking:
-            dist_base = np.linalg.norm(self.A1 - self.A2)
-            center_x = (self.A1[0] + self.A2[0]) / 2 - np.cos(
-                self.problem_parameters["goal_config"][2].value
-            ) * 2 * dist_base
-            center_y = (self.A1[1] + self.A2[1]) / 2 - np.sin(
-                self.problem_parameters["goal_config"][2].value
-            ) * 2 * dist_base
-            s_function[i] = (3 * dist_base) ** 2 - (x[0] - center_x) ** 2 - (x[1] - center_y) ** 2
-        else:
-            s_function[i] = 0
         # jacobian of the obstacle function
         C = s_function.jacobian(x)
         G = s_function.diff(p)
@@ -849,7 +865,7 @@ class SpaceshipPlanner:
             + 1000 * cvx.sum(cvx.abs(self.variables["v_goal_config"]))
             + 1000 * cvx.sum(cvx.abs(self.variables["v_s"]))
             + 1000 * cvx.sum(cvx.abs(self.variables["v_boundaries"]))
-            # + 100 * cvx.sum(cvx.abs(self.variables["v_dock_costraint"]))
+            + 100 * cvx.sum(cvx.abs(self.variables["v_cone"]))
             + 10 * cvx.sum(cvx.abs(self.variables["v_final_pose"]))
         )
         # add the final time
@@ -909,7 +925,7 @@ class SpaceshipPlanner:
         #         (len(self.planets) * 3, self.n_x_obstacles), order="C"
         #     )
         #     c = cvx.matmul(m, self.variables["X"][: self.n_x_obstacles, k]) + self.problem_parameters["r_planets"][:, k]
-        s_matrix = np.zeros((len(self.planets) + len(self.satellites) + 1, self.params.K))
+        s_matrix = np.zeros((len(self.planets) + len(self.satellites), self.params.K))
 
         for k in range(self.params.K):
             x = self.variables["X"][: self.n_x_obstacles, k].value
@@ -930,33 +946,52 @@ class SpaceshipPlanner:
         bound_min = np.min(bound)
         if bound_min < 0:
             objective += 1000 * np.abs(bound_min)
-        # if self.is_docking:
-        #     y2 = self.A2[1]
-        #     x2 = self.A2[0]
-        #     y1 = self.A1[1]
-        #     x1 = self.A1[0]
-        #     xA = self.A[0]
-        #     yA = self.A[1]
-        #     m = (y2 - y1) / (x2 - x1)
-        #     b = y1 - m * x1
-        #     if -m * xA + yA - b <= 0:
-        #         v = (
-        #             -m * self.variables["X"][0, self.params.K - 7 :].value
-        #             + self.variables["X"][1, self.params.K - 7 :].value
-        #             - b
-        #             + self.sg.l_r
-        #             + 0.1
-        #         )
-        #         objective += 100 * np.sum(v[v >= 0])
-        #     else:
-        #         v = (
-        #             -m * self.variables["X"][0, self.params.K - 7 :].value
-        #             + self.variables["X"][1, self.params.K - 7 :].value
-        #             - b
-        #             - self.sg.l_r
-        #             - 0.1
-        #         )
-        #         objective += 100 * np.sum(v[v <= 0])
+
+        if self.is_docking:
+            cone = []
+            By = self.B[1]
+            Bx = self.B[0]
+            Cy = self.C[1]
+            Cx = self.C[0]
+            xA = self.A[0]
+            yA = self.A[1]
+            mB = (By - yA) / (Bx - xA)
+            bB = yA - mB * xA
+            mC = (Cy - yA) / (Cx - xA)
+            bC = yA - mC * xA
+            if By - mC * Bx - bC > 0:
+                cone += [
+                    self.variables["X"][1, self.params.K - 10 :].value
+                    - mC * self.variables["X"][0, self.params.K - 10 :].value
+                    - bC
+                    >= 0
+                ]
+            else:
+                cone += [
+                    -self.variables["X"][1, self.params.K - 10 :].value
+                    + mC * self.variables["X"][0, self.params.K - 10 :].value
+                    + bC
+                    >= 0
+                ]
+            if Cy - mB * Cx - bB > 0:
+                cone += [
+                    self.variables["X"][1, self.params.K - 10 :].value
+                    - mB * self.variables["X"][0, self.params.K - 10 :].value
+                    - bB
+                    >= 0
+                ]
+            else:
+                cone += [
+                    -self.variables["X"][1, self.params.K - 10 :].value
+                    + mB * self.variables["X"][0, self.params.K - 10 :].value
+                    + bB
+                    >= 0
+                ]
+            cone = np.array(cone)
+            cone = np.concatenate(cone)
+            cone_min = np.min(cone)
+            if cone_min < 0:
+                objective += 100 * np.abs(cone_min)
 
         return objective.value
 
@@ -989,9 +1024,9 @@ class SpaceshipPlanner:
         # get matrix C for obstacle avoidance
         self.s_function, C, G = self._jacobians_obstacles()
         # construct the C matrix and s_matrix calling C and s_function at each time step between 0 and K
-        C_matrix = np.zeros(((len(self.planets) + len(self.satellites) + 1) * self.n_x_obstacles, self.params.K))
-        s_matrix = np.zeros((len(self.planets) + len(self.satellites) + 1, self.params.K))
-        G_matrix = np.zeros((len(self.planets) + len(self.satellites) + 1, self.params.K))
+        C_matrix = np.zeros(((len(self.planets) + len(self.satellites)) * self.n_x_obstacles, self.params.K))
+        s_matrix = np.zeros((len(self.planets) + len(self.satellites), self.params.K))
+        G_matrix = np.zeros((len(self.planets) + len(self.satellites), self.params.K))
         for k in range(self.params.K):
             x = self.problem_parameters["X_bar"].value[: self.n_x_obstacles, k]
             # reshape x to be a numpy array
@@ -1005,10 +1040,10 @@ class SpaceshipPlanner:
         self.problem_parameters["C_planets"].value = C_matrix
         self.problem_parameters["G_planets"].value = G_matrix
         # compute C_matrix * X_bar
-        C_times_X = np.zeros((len(self.planets) + len(self.satellites) + 1, self.params.K))
+        C_times_X = np.zeros((len(self.planets) + len(self.satellites), self.params.K))
         for k in range(self.params.K):
             C_times_X[:, k] = np.matmul(
-                C_matrix[:, k].reshape((len(self.planets) + len(self.satellites) + 1, self.n_x_obstacles)),
+                C_matrix[:, k].reshape((len(self.planets) + len(self.satellites), self.n_x_obstacles)),
                 self.problem_parameters["X_bar"].value[: self.n_x_obstacles, k],
             )
         # self.problem_parameters["C_times_X"].value = C_times_X
