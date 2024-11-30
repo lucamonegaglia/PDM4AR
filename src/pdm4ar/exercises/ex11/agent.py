@@ -208,25 +208,25 @@ class SpaceshipAgent(Agent):
 
         self.X_error = np.hstack((self.X_error, (current_state.as_ndarray() - expected_state_vec).reshape(-1, 1)))
         # print(f"Error at time {sim_obs.time}: {self.X_error[0:2, -1]}")
-        if self.cmds_plan.get_end() - float(sim_obs.time) < 3 and not self.plotted:
-            self.plotted = True
-            print(f"Plotting case {self.test_case}")
-            fig, axs = plt.subplots(3, 1, figsize=(10, 15))
-            axs[0].plot(self.X_error[0, :].T)
-            axs[0].set_title("X error")
-            axs[0].set_xlabel("timesteps")
+        # if self.cmds_plan.get_end() - float(sim_obs.time) < 3 and not self.plotted:
+        #     self.plotted = True
+        #     print(f"Plotting case {self.test_case}")
+        #     fig, axs = plt.subplots(3, 1, figsize=(10, 15))
+        #     axs[0].plot(self.X_error[0, :].T)
+        #     axs[0].set_title("X error")
+        #     axs[0].set_xlabel("timesteps")
 
-            axs[1].plot(self.X_error[1, :].T)
-            axs[1].set_title("Y error")
-            axs[1].set_xlabel("timesteps")
+        #     axs[1].plot(self.X_error[1, :].T)
+        #     axs[1].set_title("Y error")
+        #     axs[1].set_xlabel("timesteps")
 
-            axs[2].plot(self.X_error[2, :].T)
-            axs[2].set_title("Psi error")
-            axs[2].set_xlabel("timesteps")
+        #     axs[2].plot(self.X_error[2, :].T)
+        #     axs[2].set_title("Psi error")
+        #     axs[2].set_xlabel("timesteps")
 
-            plt.tight_layout()
-            plt.savefig(f"src/pdm4ar/exercises/ex11/plots/case{self.test_case}-sim2real.png")
-            plt.close()
+        #     plt.tight_layout()
+        #     plt.savefig(f"src/pdm4ar/exercises/ex11/plots/case{self.test_case}-sim2real.png")
+        #     plt.close()
         # if np.any(current_state.as_ndarray() - expected_state_vec > 0.01):
         #    print(f"Current - expected at time {sim_obs.time}: {current_state.as_ndarray() - expected_state_vec}")
 
