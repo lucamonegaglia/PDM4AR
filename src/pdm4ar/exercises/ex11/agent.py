@@ -207,7 +207,7 @@ class SpaceshipAgent(Agent):
         expected_state_vec = [expected_state.as_ndarray()[i].value for i in range(8)]
 
         self.X_error = np.hstack((self.X_error, (current_state.as_ndarray() - expected_state_vec).reshape(-1, 1)))
-        print(f"Error at time {sim_obs.time}: {self.X_error[0:2, -1]}")
+        # print(f"Error at time {sim_obs.time}: {self.X_error[0:2, -1]}")
         if self.cmds_plan.get_end() - float(sim_obs.time) < 3 and not self.plotted:
             self.plotted = True
             print(f"Plotting case {self.test_case}")
@@ -265,7 +265,7 @@ class SpaceshipAgent(Agent):
             k = int(1 / 0.1 * (float(sim_obs.time) - float(self.cmds_plan.get_start())))
 
             # update parameters
-            if k < self.X_interp.shape[1] - self.N - 1:
+            if k < self.A.shape[0] - self.N - 1:
 
                 self.Ak.value = self.A[k : k + self.N + 1, :]
                 self.Bk.value = self.B[k : k + self.N + 1, :]

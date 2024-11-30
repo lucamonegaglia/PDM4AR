@@ -608,10 +608,7 @@ class SpaceshipPlanner:
         B_minus = self.problem_parameters["B_minus_bar"].T
         F = self.problem_parameters["F_bar"].T
         r = self.problem_parameters["r_bar"].T
-
-        self.problem_parameters["deltax"] = self.variables["X"] - self.problem_parameters["X_bar"]
-        self.problem_parameters["deltau"] = self.variables["U"] - self.problem_parameters["U_bar"]
-        self.problem_parameters["deltap"] = self.variables["p"] - self.problem_parameters["p_bar"]
+        # A[0].reshape((self.n_x, self.n_x), order="F")
 
         constraints = [
             # Initial state costraint (WAS ALREADY IN THE EXAMPLE)
@@ -620,10 +617,6 @@ class SpaceshipPlanner:
             self.variables["X"][0:6, self.params.K - 1]
             - self.problem_parameters["goal_config"]
             - self.variables["v_goal_config"]
-            == 0,
-            self.variables["X"][2, self.params.K - 5 : self.params.K - 1]
-            - self.problem_parameters["goal_config"][2] * np.ones(4)
-            - self.variables["v_final_pose"]
             == 0,
             # Input constraints
             self.variables["U"][:, 0] - np.zeros(self.spaceship.n_u) == 0,
@@ -790,7 +783,7 @@ class SpaceshipPlanner:
             i += 1
             """
             s_function[i] = (
-                (planet.radius + 3 * self.sg.l_r) ** 2 - (x[0] - planet.center[0]) ** 2 - (x[1] - planet.center[1]) ** 2
+                (planet.radius + 2 * self.sg.l_r) ** 2 - (x[0] - planet.center[0]) ** 2 - (x[1] - planet.center[1]) ** 2
             )
             i += 1
 
@@ -803,9 +796,36 @@ class SpaceshipPlanner:
                 satellite.omega * k * p / (self.params.K - 1) + satellite.tau
             )
             s_function[i] = (
-                (satellite.radius + 3 * self.sg.l_r) ** 2 - (x[0] - x_satellite) ** 2 - (x[1] - y_satellite) ** 2
+                (satellite.radius + 2 * self.sg.l_r) ** 2 - (x[0] - x_satellite) ** 2 - (x[1] - y_satellite) ** 2
             )
             i += 1
+        if self.is_docking:
+            # circle
+            # dist_base = np.linalg.norm(self.A1 - self.A2)
+            # center_x = (self.A1[0] + self.A2[0]) / 2 - np.cos(
+            #     self.problem_parameters["goal_config"][2].value
+            # ) * 2 * dist_base
+            # center_y = (self.A1[1] + self.A2[1]) / 2 - np.sin(
+            #     self.problem_parameters["goal_config"][2].value
+            # ) * 2 * dist_base
+            # # radius = np.sqrt((self.A1[0] - center_x) ** 2 + (self.A1[1] - center_y) ** 2)
+            # radius = 2 * dist_base
+            # s_function[i] = (radius) ** 2 - (x[0] - center_x) ** 2 - (x[1] - center_y) ** 2
+
+            # ellipse
+            dist_base = np.linalg.norm(self.A1 - self.A2)
+            theta = self.problem_parameters["goal_config"][2].value + np.pi / 2
+            center_x = (self.A1[0] + self.A2[0]) / 2
+            center_y = (self.A1[1] + self.A2[1]) / 2
+            a = dist_base / 2 + self.sg.l_f + self.sg.l_c  # semiasse maggiore
+            b = self.sg.l_r - 0.1  # semiasse minore
+            s_function[i] = (
+                (((x[0] - center_x) * np.cos(theta) + (x[1] - center_y) * np.sin(theta)) ** 2) / (a**2)
+                + (((x[0] - center_x) * np.sin(theta) - (x[1] - center_y) * np.cos(theta)) ** 2) / (b**2)
+                - 1
+            )
+        else:
+            s_function[i] = 0
         # jacobian of the obstacle function
         C = s_function.jacobian(x)
         G = s_function.diff(p)
@@ -832,9 +852,9 @@ class SpaceshipPlanner:
                 0.5
                 / self.params.K
                 * (
-                    self.variables["X"][0:2, i]
-                    + self.variables["X"][0:2, i + 1]
-                    - 2 * self.problem_parameters["goal_config"][0:2]
+                    self.variables["X"][0:3, i]
+                    + self.variables["X"][0:3, i + 1]
+                    - 2 * self.problem_parameters["goal_config"][0:3]
                 ),
                 "fro",
             )
@@ -880,9 +900,9 @@ class SpaceshipPlanner:
                 0.5
                 / self.params.K
                 * (
-                    self.variables["X"][0:2, i]
-                    + self.variables["X"][0:2, i + 1]
-                    - 2 * self.problem_parameters["goal_config"][0:2]
+                    self.variables["X"][0:3, i]
+                    + self.variables["X"][0:3, i + 1]
+                    - 2 * self.problem_parameters["goal_config"][0:3]
                 ),
                 "fro",
             )
@@ -907,17 +927,23 @@ class SpaceshipPlanner:
             objective += cvx.sum(
                 100 * 0.5 / self.params.K * (self.variables["U"][:, i] - self.variables["U"][:, i + 1]) ** 2
             )
+        # print(f"integrated: {objective.value}")
         objective += 1000 * cvx.sum(cvx.abs(1 / self.params.K * delta))
+        # print(f"plus delta: {objective.value}")
         objective += 1000 * cvx.sum(cvx.abs(self.variables["X"][:, 0] - self.problem_parameters["init_state"]))
+        # print(f"plus init: {objective.value}")
         objective += 1000 * cvx.sum(
             cvx.abs(self.variables["X"][0:6, self.params.K - 1] - self.problem_parameters["goal_config"])
         )
-        objective += 10 * cvx.sum(
-            cvx.abs(
-                self.variables["X"][2][self.params.K - 5 : self.params.K - 1]
-                - self.problem_parameters["goal_config"][2] * np.ones(4)
-            )
-        )
+        # print(f"plus goal: {objective.value}, v_config: {self.variables['v_goal_config'].value}")
+        # objective += 1000 * cvx.sum(cvx.abs(self.variables["X"][0:6, self.params.K - 2] - self.intermediate_pose))
+        # final pose
+        # objective += 10 * cvx.sum(
+        #     cvx.abs(
+        #         self.variables["X"][2][self.params.K - 5 : self.params.K - 1]
+        #         - self.problem_parameters["goal_config"][2] * np.ones(4)
+        #     )
+        # )
 
         objective += 0.001 * self.variables["p"]
         # for k in range(self.params.K):
@@ -933,7 +959,7 @@ class SpaceshipPlanner:
             s_matrix[:, k] = self.s_function(x, k, self.variables["p"][0].value).flatten()
         max_s = np.max(s_matrix, 1)
         objective += 1000 * np.sum(max_s[max_s > 0])
-
+        # print(f"plus obstacle: {objective.value}")
         bound = np.array(
             [
                 self.variables["X"][0, :].value - self.minx - (self.sg.l_f + self.sg.l_c),
@@ -1050,6 +1076,10 @@ class SpaceshipPlanner:
         self.problem_parameters["r_planets"].value = (
             s_matrix - C_times_X - G_matrix * self.problem_parameters["p_bar"].value
         )
+
+        self.problem_parameters["deltax"] = self.variables["X"] - self.problem_parameters["X_bar"]
+        self.problem_parameters["deltau"] = self.variables["U"] - self.problem_parameters["U_bar"]
+        self.problem_parameters["deltap"] = self.variables["p"] - self.problem_parameters["p_bar"]
 
     def _check_convergence(self, objective_pre_solver_non_discretized: float) -> bool:
         """
