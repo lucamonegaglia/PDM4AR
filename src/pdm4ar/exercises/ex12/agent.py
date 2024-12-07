@@ -1,3 +1,4 @@
+from mimetypes import init
 import random
 from dataclasses import dataclass
 from typing import Sequence
@@ -11,6 +12,7 @@ from dg_commons.sim.models.obstacles import StaticObstacle
 from dg_commons.sim.models.vehicle import VehicleCommands
 from dg_commons.sim.models.vehicle_structures import VehicleGeometry
 from dg_commons.sim.models.vehicle_utils import VehicleParameters
+import numpy as np
 
 
 @dataclass(frozen=True)
@@ -40,6 +42,14 @@ class Pdm4arAgent(Agent):
         self.goal = init_obs.goal
         self.sg = init_obs.model_geometry
         self.sp = init_obs.model_params
+        self.lanelet_network = init_obs.dg_scenario.lanelet_network
+        control_points = init_obs.goal.ref_lane.control_points
+        print("Control points: ", control_points)
+        self.goal_lanelet_id = self.lanelet_network.find_lanelet_by_position([control_points[1].q.p])[0][0]
+        print("Goal lanelet id: ", self.goal_lanelet_id)
+
+        print(init_obs.dg_scenario.lanelet_network)
+        # print(init_obs.dg_scenario.lanelet_network.find_lanelet_by_position())
 
     def get_commands(self, sim_obs: SimObservations) -> VehicleCommands:
         """This method is called by the simulator every dt_commands seconds (0.1s by default).
@@ -52,7 +62,15 @@ class Pdm4arAgent(Agent):
         """
 
         # todo implement here some better planning
+
+        # In here you can find the observation of the lidar + the state of my vehicle
+        # print(sim_obs.players)
+        print(sim_obs.players["Ego"].state.x, sim_obs.players["Ego"].state.y)
+        current_ego_lanelet = self.lanelet_network.find_lanelet_by_position(
+            [np.array([sim_obs.players["Ego"].state.x, sim_obs.players["Ego"].state.y])]
+        )
+
         rnd_acc = random.random() * self.params.param1
-        rnd_ddelta = (random.random() - 0.5) * self.params.param1
+        rnd_ddelta = (0) * self.params.param1
 
         return VehicleCommands(acc=rnd_acc, ddelta=rnd_ddelta)
