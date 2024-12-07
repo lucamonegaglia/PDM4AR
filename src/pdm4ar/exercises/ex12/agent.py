@@ -13,6 +13,7 @@ from dg_commons.sim.models.vehicle import VehicleCommands
 from dg_commons.sim.models.vehicle_structures import VehicleGeometry
 from dg_commons.sim.models.vehicle_utils import VehicleParameters
 import numpy as np
+from planner import Planner
 
 
 @dataclass(frozen=True)
@@ -51,6 +52,8 @@ class Pdm4arAgent(Agent):
         print(init_obs.dg_scenario.lanelet_network)
         # print(init_obs.dg_scenario.lanelet_network.find_lanelet_by_position())
 
+        self.planner = Planner(self.lanelet_network, self.name, self.goal)
+    
     def get_commands(self, sim_obs: SimObservations) -> VehicleCommands:
         """This method is called by the simulator every dt_commands seconds (0.1s by default).
         Do not modify the signature of this method.
