@@ -147,7 +147,7 @@ class SpaceshipAgent(Agent):
         for i in range(8):
             self.X_interp[i, :] = np.interp(new_times, original_times, X_bar[i, :])
 
-        self.N = 30  # Prediction horizon
+        self.N = 20  # Prediction horizon
         Q = np.eye(8)  # State tracking cost
         # R = 0.1 * np.eye(2)  #
         self.x_ref_window = cvx.Parameter((8, self.N + 1))
@@ -200,13 +200,13 @@ class SpaceshipAgent(Agent):
         Do **not** modify the signature of this method.
         """
         current_state = sim_obs.players[self.myname].state
-        next_desired_state = self.state_traj.at_interp(float(sim_obs.time) + 0.1)
-        expected_state = self.state_traj.at_interp(sim_obs.time)
+        # next_desired_state = self.state_traj.at_interp(float(sim_obs.time) + 0.1)
+        # expected_state = self.state_traj.at_interp(sim_obs.time)
 
-        next_desired_state_vec = [next_desired_state.as_ndarray()[i].value for i in range(8)]
-        expected_state_vec = [expected_state.as_ndarray()[i].value for i in range(8)]
+        # next_desired_state_vec = [next_desired_state.as_ndarray()[i].value for i in range(8)]
+        # expected_state_vec = [expected_state.as_ndarray()[i].value for i in range(8)]
 
-        self.X_error = np.hstack((self.X_error, (current_state.as_ndarray() - expected_state_vec).reshape(-1, 1)))
+        # self.X_error = np.hstack((self.X_error, (current_state.as_ndarray() - expected_state_vec).reshape(-1, 1)))
         # print(f"Error at time {sim_obs.time}: {self.X_error[0:2, -1]}")
         # if self.cmds_plan.get_end() - float(sim_obs.time) < 3 and not self.plotted:
         #     self.plotted = True
@@ -260,7 +260,7 @@ class SpaceshipAgent(Agent):
         if use_mpc == False:
             return self.cmds_plan.at_interp(sim_obs.time)
         else:
-            start_time = time.time()
+            # start_time = time.time()
 
             k = int(1 / 0.1 * (float(sim_obs.time) - float(self.cmds_plan.get_start())))
 
@@ -275,7 +275,7 @@ class SpaceshipAgent(Agent):
                 self.x_current.value = current_state.as_ndarray()  # Initial state
 
                 self.prob.solve()
-                solve_time = time.time() - start_time
+                # solve_time = time.time() - start_time
                 # print(
                 #     f"Solve time: {solve_time}, cmds diff: {self.u.value[:, 0] - self.cmds_plan.at_interp(sim_obs.time).as_ndarray()}"
                 # )
