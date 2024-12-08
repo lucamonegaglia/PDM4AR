@@ -44,12 +44,23 @@ class Planner:
         if not lanelet:
             raise ValueError(f"Lanelet with id {lane_id} not found")
 
+        # Get Ego's current position
+        ego_position = np.array([self.sim_obs.players["Ego"].state.x, self.sim_obs.players["Ego"].state.y])
+
+        # Project Ego's position onto the centerline to get the starting arc length
+        center_vertices = lanelet.center_vertices
+
+        # Find the closest vertex to ego_position
+        distance = np.linalg.norm(center_vertices[0] - ego_position)
+        print("Centers", lanelet.center_vertices)
+        # Sample evenly spaced points starting from s_start
+        s = np.linspace(distance, distance + self.sim_obs.players["Ego"].state.vx * 4, num_points)
+
         sampled_points = []
-        s = np.linspace(0, self.sim_obs.players["Ego"].state.vx * 8, num_points)
         for i in range(num_points):
             points = lanelet.interpolate_position(
                 s[i]
-            )  # The interpolated positions on the center/right/left polyline and the segment id of the polyline where the interpolation takes place in the form ([x_c,y_c],[x_r,y_r],[x_l,y_l], segment_id)
+            )  # The interpolated positions on the center/right/left polyline and the segment id
             if i == 0:
                 index_init = points[3]
             if i == num_points - 1:
@@ -115,7 +126,6 @@ class Planner:
         plt.title("All Discretized Splines")
         plt.xlabel("X Coordinate")
         plt.ylabel("Y Coordinate")
-        plt.legend()
         plt.grid(True)
         plt.savefig(filename)
         plt.close()

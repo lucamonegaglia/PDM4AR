@@ -67,12 +67,13 @@ class Pdm4arAgent(Agent):
         # In here you can find the observation of the lidar + the state of my vehicle
         # print(sim_obs.players)
         # print(sim_obs.players["Ego"].state.x, sim_obs.players["Ego"].state.y)
-        current_ego_lanelet = self.lanelet_network.find_lanelet_by_position(
-            [np.array([sim_obs.players["Ego"].state.x, sim_obs.players["Ego"].state.y])]
-        )[0][0]
+
         # print("Current ego lanelet: ", current_ego_lanelet)
 
         if self.flag:
+            current_ego_lanelet = self.lanelet_network.find_lanelet_by_position(
+                [np.array([sim_obs.players["Ego"].state.x, sim_obs.players["Ego"].state.y])]
+            )[0][0]
             self.myplanner = Planner(self.lanelet_network, self.name, self.goal, sim_obs)
             self.flag = False
             # self.myplanner.plot_sampled_points(
@@ -87,6 +88,7 @@ class Pdm4arAgent(Agent):
             )
             print("Sampled points: ", sampled_points)
             print("Number of sampled points: ", len(sampled_points[0]) * len(sampled_points))
+            print([sim_obs.players["Ego"].state.x, sim_obs.players["Ego"].state.y])
             print(sampled_points[0][0][0], sampled_points[0][0][1])
             print(sampled_points[0][1][0], sampled_points[0][1][1])
             print(sampled_points[0][2][0], sampled_points[0][2][1])
