@@ -16,11 +16,11 @@ import matplotlib
 from matplotlib import pyplot as plt
 import numpy as np
 from scipy.interpolate import CubicSpline
+from itertools import product
 
 matplotlib.use("Agg")
 
 
-@dataclass
 class Planner:
     lanelet_network: LaneletNetwork
     player_name: PlayerName
@@ -50,60 +50,74 @@ class Planner:
             points = lanelet.interpolate_position(
                 s[i]
             )  # The interpolated positions on the center/right/left polyline and the segment id of the polyline where the interpolation takes place in the form ([x_c,y_c],[x_r,y_r],[x_l,y_l], segment_id)
-            sampled_points.append(points)
+            if i == 0:
+                index_init = points[3]
+            if i == num_points - 1:
+                index_end = points[3]
+            sampled_points.append(points[0:3])
 
-        return sampled_points
+        return sampled_points, index_init, index_end
 
-    def get_discretized_spline(self, sampled_points: Sequence[np.ndarray]) -> List[Tuple[float, float]]:
-        # Extract x and y coordinates for spline creation
-        x_coords = [point[0][0] for point in sampled_points]  # Assuming point[0] is the centerline point
-        y_coords = [point[0][1] for point in sampled_points]
+    def get_discretized_spline(
+        self, sampled_points: Sequence[np.ndarray], bc_value_init, bc_value_end
+    ) -> List[Tuple[float, float]]:
+        """
+        Generate a cubic spline for three points and discretize it.
 
-        # Create a cubic spline
-        cs = CubicSpline(x_coords, y_coords)
+        Parameters:
+            sampled_points (Sequence[np.ndarray]): Three points, each a numpy array [x, y].
 
-        # Generate points for the spline
-        xs = np.linspace(min(x_coords), max(x_coords), 100)
-        ys = cs(xs)
+        Returns:
+            List[Tuple[float, float]]: Discretized points along the cubic spline.
+        """
 
-        # Discretized spline points
-        discretized_points = list(zip(xs, ys))
+        # Extract x and y coordinates
+        x_coords = [point[0] for point in sampled_points]
+        y_coords = [point[1] for point in sampled_points]
 
-        return discretized_points
+        # Create the cubic spline
+        bc_type = ((1, bc_value_init), (1, bc_value_end))
+        cubic_spline = CubicSpline(x_coords, y_coords, bc_type=bc_type)
 
-    def sample_points_on_player_lane(self, num_points: int) -> Sequence[np.ndarray]:
-        player_lane_id = self.get_player_lane_id()
-        return self.sample_points_on_lane(player_lane_id, num_points)
+        # Generate discretized points along the spline
+        xs = np.linspace(min(x_coords), max(x_coords), 20)  # 20 discretized points
+        ys = cubic_spline(xs)
 
-    def sample_points_on_goal_lane(self, num_points: int) -> Sequence[np.ndarray]:
-        goal_lane_id = self.get_goal_lane_id()
-        return self.sample_points_on_lane(goal_lane_id, num_points)
+        # Return discretized points as a list of tuples
+        return list(zip(xs, ys))
 
-    def plot_sampled_points(
-        self, sampled_points: Sequence[np.ndarray], lane_id: int, spline_points: List[Tuple[float, float]] = None
+    def get_all_discretized_splines(
+        self, sampled_points_list: Sequence[Sequence[np.ndarray]], bc_value_init, bc_value_end
+    ) -> List[List[Tuple[float, float]]]:
+        """
+        Generates discretized splines for all combinations of sampled points.
+        """
+        all_discretized_splines = []
+
+        # Generate Cartesian product of all combinations of center, left, and right points
+        point_combinations = product(*sampled_points_list)  # Cartesian product
+        i = 0
+        for combination in point_combinations:
+            spline_points = self.get_discretized_spline(combination, bc_value_init, bc_value_end)
+            all_discretized_splines.append(spline_points)
+            i += 1
+        print("Number of splines: ", i)
+        return all_discretized_splines
+
+    def plot_all_discretized_splines(
+        self, all_discretized_splines: List[List[Tuple[float, float]]], filename: str = "all_discretized_splines.png"
     ):
-        # Extract x and y coordinates for plotting
-        x_coords = [point[0][0] for point in sampled_points]  # Assuming point[0] is the centerline point
-        y_coords = [point[0][1] for point in sampled_points]
-        x_coords += [point[1][0] for point in sampled_points]
-        y_coords += [point[1][1] for point in sampled_points]
-        x_coords += [point[2][0] for point in sampled_points]
-        y_coords += [point[2][1] for point in sampled_points]
-
-        # Plot the sampled points
         plt.figure(figsize=(10, 6))
-        plt.scatter(x_coords, y_coords, c="blue", marker="o", label="Sampled Points")
-
-        # Plot the spline points if provided
-        if spline_points:
+        for spline_points in all_discretized_splines:
             spline_x, spline_y = zip(*spline_points)
-            plt.plot(spline_x, spline_y, c="red", label="Cubic Spline")
+            plt.plot(spline_x, spline_y, label="Discretized Spline")
 
-        plt.title(f"Sampled Points on Lane {lane_id}")
+        plt.title("All Discretized Splines")
         plt.xlabel("X Coordinate")
         plt.ylabel("Y Coordinate")
         plt.legend()
-        plt.savefig(str(lane_id))
+        plt.grid(True)
+        plt.savefig(filename)
         plt.close()
 
     def get_player_lane_id(self) -> int:
