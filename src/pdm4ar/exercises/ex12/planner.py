@@ -110,12 +110,19 @@ class Planner:
         all_discretized_splines = []
 
         # Generate Cartesian product of all combinations of center, left, and right points
-        point_combinations = product(*sampled_points_list)  # Cartesian product
-        i = 0
+        # point_combinations = product(*sampled_points_list)  # Cartesian product
         ego_position = np.array([self.sim_obs.players["Ego"].state.x, self.sim_obs.players["Ego"].state.y])
+
+        point_combinations = []
+        for i in range(len(sampled_points_list) - 1):
+            layer_combinations = list(product(sampled_points_list[i], sampled_points_list[i + 1]))
+            point_combinations += layer_combinations
+        for i, item in enumerate(sampled_points_list[0]):
+            point_combinations.append((ego_position, item))
+        # print("Point combinations: ", point_combinations)
+        i = 0
         for combination in point_combinations:
-            extended_combination = [ego_position] + list(combination)
-            spline_points = self.get_discretized_spline(extended_combination, bc_value_init, bc_value_end)
+            spline_points = self.get_discretized_spline(combination, bc_value_init, bc_value_end)
             all_discretized_splines.append(spline_points)
             i += 1
         print("Number of splines: ", i)

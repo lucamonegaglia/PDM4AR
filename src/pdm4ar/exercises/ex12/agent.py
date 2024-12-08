@@ -88,7 +88,7 @@ class Pdm4arAgent(Agent):
             )
             print("Sampled points: ", sampled_points)
             print("Number of sampled points: ", len(sampled_points[0]) * len(sampled_points))
-            print([sim_obs.players["Ego"].state.x, sim_obs.players["Ego"].state.y])
+            print("Position: ", sim_obs.players["Ego"].state.x, sim_obs.players["Ego"].state.y)
             print(sampled_points[0][0][0], sampled_points[0][0][1])
             print(sampled_points[0][1][0], sampled_points[0][1][1])
             print(sampled_points[0][2][0], sampled_points[0][2][1])
