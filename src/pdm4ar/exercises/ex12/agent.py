@@ -45,9 +45,9 @@ class Pdm4arAgent(Agent):
         self.sg = init_obs.model_geometry
         self.sp = init_obs.model_params
         self.lanelet_network = init_obs.dg_scenario.lanelet_network
-        control_points = init_obs.goal.ref_lane.control_points
-        print("Control points: ", control_points)
-        self.goal_lanelet_id = self.lanelet_network.find_lanelet_by_position([control_points[1].q.p])[0][0]
+        self.control_points = init_obs.goal.ref_lane.control_points
+        print("Control points: ", self.control_points)
+        self.goal_lanelet_id = self.lanelet_network.find_lanelet_by_position([self.control_points[1].q.p])[0][0]
         print("Goal lanelet id: ", self.goal_lanelet_id)
         print(init_obs.dg_scenario.lanelet_network)
         # print(init_obs.dg_scenario.lanelet_network.find_lanelet_by_position())
@@ -67,21 +67,37 @@ class Pdm4arAgent(Agent):
         # In here you can find the observation of the lidar + the state of my vehicle
         # print(sim_obs.players)
         # print(sim_obs.players["Ego"].state.x, sim_obs.players["Ego"].state.y)
-        current_ego_lanelet = self.lanelet_network.find_lanelet_by_position(
-            [np.array([sim_obs.players["Ego"].state.x, sim_obs.players["Ego"].state.y])]
-        )[0][0]
+
         # print("Current ego lanelet: ", current_ego_lanelet)
 
         if self.flag:
+            current_ego_lanelet = self.lanelet_network.find_lanelet_by_position(
+                [np.array([sim_obs.players["Ego"].state.x, sim_obs.players["Ego"].state.y])]
+            )[0][0]
             self.myplanner = Planner(self.lanelet_network, self.name, self.goal, sim_obs)
             self.flag = False
-            self.myplanner.plot_sampled_points(
-                self.myplanner.sample_points_on_lane(lane_id=current_ego_lanelet, num_points=3),
-                current_ego_lanelet,
-                self.myplanner.get_discretized_spline(
-                    self.myplanner.sample_points_on_lane(lane_id=current_ego_lanelet, num_points=3)
-                ),
+            # self.myplanner.plot_sampled_points(
+            #     self.myplanner.sample_points_on_lane(lane_id=current_ego_lanelet, num_points=3),
+            #     current_ego_lanelet,
+            #     self.myplanner.get_discretized_spline(
+            #         self.myplanner.sample_points_on_lane(lane_id=current_ego_lanelet, num_points=3)
+            #     ),
+            # )
+            sampled_points, index_init, index_end = self.myplanner.sample_points_on_lane(
+                lane_id=current_ego_lanelet, num_points=3
             )
+            print("Sampled points: ", sampled_points)
+            print("Number of sampled points: ", len(sampled_points[0]) * len(sampled_points))
+            print([sim_obs.players["Ego"].state.x, sim_obs.players["Ego"].state.y])
+            print(sampled_points[0][0][0], sampled_points[0][0][1])
+            print(sampled_points[0][1][0], sampled_points[0][1][1])
+            print(sampled_points[0][2][0], sampled_points[0][2][1])
+            bc_value_init = self.control_points[index_init].q.theta
+            print("BC value init: ", bc_value_init)
+            bc_value_end = self.control_points[index_end].q.theta
+            print("BC value end: ", bc_value_end)
+            all_splines = self.myplanner.get_all_discretized_splines(sampled_points, bc_value_init, bc_value_end)
+            self.myplanner.plot_all_discretized_splines(all_splines)
         rnd_acc = random.random() * self.params.param1
         rnd_ddelta = (0) * self.params.param1
 
