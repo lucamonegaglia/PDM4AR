@@ -41,7 +41,7 @@ class SolverParameters:
     # Cvxpy solver parameters
     solver: str = "CLARABEL"  # specify solver to use
     verbose_solver: bool = False  # if True, the optimization steps are shown
-    max_iterations: int = 100  # max algorithm iterations
+    max_iterations: int = 200  # max algorithm iterations
 
     # SCVX parameters (Add paper reference)
     lambda_nu: float = 1e5  # slack variable weight
@@ -869,7 +869,8 @@ class SpaceshipPlanner:
         initial_pose = self.problem_parameters["goal_config"][2]
         for i in range(self.params.K - 1):
             objective += cvx.norm(
-                0.5
+                1
+                * 0.5
                 / self.params.K
                 * (
                     self.variables["X"][0:3, i]
@@ -878,10 +879,10 @@ class SpaceshipPlanner:
                 ),
                 "fro",
             )
-            objective += cvx.norm(
-                10 * 0.5 / self.params.K * (self.variables["X"][3:5, i] + self.variables["X"][3:5, i + 1]),
-                "fro",
-            )
+            # objective += cvx.norm(
+            #     10 * 0.5 / self.params.K * (self.variables["X"][3:5, i] + self.variables["X"][3:5, i + 1]),
+            #     "fro",
+            # )
 
             # objective += cvx.sum(
             #     10 * 0.5 / self.params.K * (self.variables["X"][2, i] - self.variables["X"][2, i + 1]) ** 2
@@ -897,7 +898,7 @@ class SpaceshipPlanner:
             #     "fro",
             # )
             objective += cvx.sum(
-                10 * 0.5 / self.params.K * (self.variables["U"][:, i] - self.variables["U"][:, i + 1]) ** 2
+                1 * 0.5 / self.params.K * (self.variables["U"][:, i] - self.variables["U"][:, i + 1]) ** 2
             )
         objective += (
             1000 * cvx.sum(cvx.abs(1 / self.params.K * self.variables["v_dyn"]))
@@ -906,7 +907,6 @@ class SpaceshipPlanner:
             + 1000 * cvx.sum(cvx.abs(self.variables["v_s"]))
             + 1000 * cvx.sum(cvx.abs(self.variables["v_boundaries"]))
             + 100 * cvx.sum(cvx.abs(self.variables["v_cone"]))
-            + 10 * cvx.sum(cvx.abs(self.variables["v_final_pose"]))
         )
         # add the final time
         objective += 0.1 * self.variables["p"]
@@ -917,7 +917,8 @@ class SpaceshipPlanner:
         initial_pose = self.problem_parameters["goal_config"][2]
         for i in range(self.params.K - 1):
             objective += cvx.norm(
-                0.5
+                1
+                * 0.5
                 / self.params.K
                 * (
                     self.variables["X"][0:3, i]
@@ -926,10 +927,10 @@ class SpaceshipPlanner:
                 ),
                 "fro",
             )
-            objective += cvx.norm(
-                10 * 0.5 / self.params.K * (self.variables["X"][3:5, i] + self.variables["X"][3:5, i + 1]),
-                "fro",
-            )
+            # objective += cvx.norm(
+            #     10 * 0.5 / self.params.K * (self.variables["X"][3:5, i] + self.variables["X"][3:5, i + 1]),
+            #     "fro",
+            # )
 
             # objective += cvx.sum(
             #     10 * 0.5 / self.params.K * (self.variables["X"][2, i] - self.variables["X"][2, i + 1]) ** 2
@@ -945,7 +946,7 @@ class SpaceshipPlanner:
             #     "fro",
             # )
             objective += cvx.sum(
-                10 * 0.5 / self.params.K * (self.variables["U"][:, i] - self.variables["U"][:, i + 1]) ** 2
+                1 * 0.5 / self.params.K * (self.variables["U"][:, i] - self.variables["U"][:, i + 1]) ** 2
             )
         # print(f"integrated: {objective.value}")
         objective += 1000 * cvx.sum(cvx.abs(1 / self.params.K * delta))
