@@ -54,7 +54,11 @@ class Planner:
         distance = np.linalg.norm(center_vertices[0] - ego_position)
         print("Centers", lanelet.center_vertices)
         # Sample evenly spaced points starting from s_start
-        s = np.linspace(distance, distance + self.sim_obs.players["Ego"].state.vx * 4, num_points)
+        s = np.linspace(
+            distance + self.sim_obs.players["Ego"].state.vx,
+            distance + self.sim_obs.players["Ego"].state.vx * 5,
+            num_points,
+        )
 
         sampled_points = []
         for i in range(num_points):
@@ -108,8 +112,10 @@ class Planner:
         # Generate Cartesian product of all combinations of center, left, and right points
         point_combinations = product(*sampled_points_list)  # Cartesian product
         i = 0
+        ego_position = np.array([self.sim_obs.players["Ego"].state.x, self.sim_obs.players["Ego"].state.y])
         for combination in point_combinations:
-            spline_points = self.get_discretized_spline(combination, bc_value_init, bc_value_end)
+            extended_combination = [ego_position] + list(combination)
+            spline_points = self.get_discretized_spline(extended_combination, bc_value_init, bc_value_end)
             all_discretized_splines.append(spline_points)
             i += 1
         print("Number of splines: ", i)
