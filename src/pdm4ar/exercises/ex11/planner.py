@@ -765,20 +765,20 @@ class SpaceshipPlanner:
         r = spy.sqrt(d**2 + self.sg.w_half**2)
         cx = x[0] + (d - self.sg.l_r) * spy.cos(x[2])
         cy = x[1] + (d - self.sg.l_r) * spy.sin(x[2])
-        r = r * 1.8
+        r = r * 1.5
 
         # triangular part
         a = spy.sqrt(self.sg.w_half**2 + self.sg.l_c**2)
         r2 = (a**2 * self.sg.w_half * 2) / (4 * self.sg.l_c * self.sg.w_half)
         cx2 = x[0] + (self.sg.l_f + self.sg.l_c - r2) * spy.cos(x[2])
         cy2 = x[1] + (self.sg.l_f + self.sg.l_c - r2) * spy.sin(x[2])
-        r2 = r2 * 1.8
+        r2 = r2 * 1.5
 
         # thrust part
         cx3 = x[0] - (self.sg.l_r) * spy.cos(x[2])
         cy3 = x[1] - (self.sg.l_r) * spy.sin(x[2])
         r3 = self.sg.l_t_half
-        r3 = r3 * 1.8
+        r3 = r3 * 1.5
 
         i = 0
         for planet in self.planets.values():
