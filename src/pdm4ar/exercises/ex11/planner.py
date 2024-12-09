@@ -41,7 +41,7 @@ class SolverParameters:
     # Cvxpy solver parameters
     solver: str = "CLARABEL"  # specify solver to use
     verbose_solver: bool = False  # if True, the optimization steps are shown
-    max_iterations: int = 100  # max algorithm iterations
+    max_iterations: int = 200  # max algorithm iterations
 
     # SCVX parameters (Add paper reference)
     lambda_nu: float = 1e5  # slack variable weight
@@ -765,20 +765,20 @@ class SpaceshipPlanner:
         r = spy.sqrt(d**2 + self.sg.w_half**2)
         cx = x[0] + (d - self.sg.l_r) * spy.cos(x[2])
         cy = x[1] + (d - self.sg.l_r) * spy.sin(x[2])
-        r = r * 1.5
+        r = r * 1.6
 
         # triangular part
         a = spy.sqrt(self.sg.w_half**2 + self.sg.l_c**2)
         r2 = (a**2 * self.sg.w_half * 2) / (4 * self.sg.l_c * self.sg.w_half)
         cx2 = x[0] + (self.sg.l_f + self.sg.l_c - r2) * spy.cos(x[2])
         cy2 = x[1] + (self.sg.l_f + self.sg.l_c - r2) * spy.sin(x[2])
-        r2 = r2 * 1.5
+        r2 = r2 * 1.6
 
         # thrust part
         cx3 = x[0] - (self.sg.l_r) * spy.cos(x[2])
         cy3 = x[1] - (self.sg.l_r) * spy.sin(x[2])
         r3 = self.sg.l_t_half
-        r3 = r3 * 1.5
+        r3 = r3 * 1.6
 
         i = 0
         for planet in self.planets.values():
@@ -911,6 +911,7 @@ class SpaceshipPlanner:
 
         # Compute the terms for the cost function
         X_mid = X[:, :-1] + X[:, 1:]  # Midpoints of X
+        U_mid = U[:, :-1] + U[:, 1:]  # Midpoints of U
         goal_term = X_mid[0:3, :] - 2 * cvx.reshape(goal_config[0:3], (3, 1))
         control_diff = U[:, :-1] - U[:, 1:]  # Difference in control inputs
         position_differences = X[0:2, 1:] - X[0:2, :-1]
@@ -920,10 +921,11 @@ class SpaceshipPlanner:
         # Vectorized norms and summations
         objective = cvx.sum(alpha * cvx.norm(goal_term, axis=0, p="fro"))
         # objective += cvx.sum(10 * alpha * cvx.norm(X_mid[3:5, :], axis=0, p="fro"))
-        objective += cvx.sum(10 * alpha * cvx.square(control_diff))
+        objective += cvx.sum(0.1 * alpha * cvx.square(U_mid[0, :]))
+        # objective += cvx.sum(1 * alpha * cvx.square(control_diff))
         objective += cvx.sum(distance_traveled)
         # objective += cvx.sum(actuation_effort)
-        objective += 0.1 * self.variables["p"]
+        objective += 0.3 * self.variables["p"]
 
         objective += (
             1000 * cvx.sum(cvx.abs(1 / self.params.K * self.variables["v_dyn"]))
@@ -931,7 +933,7 @@ class SpaceshipPlanner:
             + 1000 * cvx.sum(cvx.abs(self.variables["v_goal_config"]))
             + 1000 * cvx.sum(cvx.abs(self.variables["v_s"]))
             + 1000 * cvx.sum(cvx.abs(self.variables["v_boundaries"]))
-            + 100 * cvx.sum(cvx.abs(self.variables["v_cone"]))
+            + cvx.sum(cvx.abs(self.variables["v_cone"]))
             # + 100 * cvx.sum(cvx.abs(self.variables["v_final_pose"]))
         )
         # add the final time
@@ -982,6 +984,7 @@ class SpaceshipPlanner:
 
         # Compute the terms for the cost function
         X_mid = X[:, :-1] + X[:, 1:]  # Midpoints of X
+        U_mid = U[:, :-1] + U[:, 1:]  # Midpoints of U
         goal_term = X_mid[0:3, :] - 2 * cvx.reshape(goal_config[0:3], (3, 1))
         control_diff = U[:, :-1] - U[:, 1:]  # Difference in control inputs
         position_differences = X[0:2, 1:] - X[0:2, :-1]
@@ -992,10 +995,11 @@ class SpaceshipPlanner:
         # Vectorized norms and summations
         objective = cvx.sum(alpha * cvx.norm(goal_term, axis=0, p="fro"))
         # objective += cvx.sum(10 * alpha * cvx.norm(X_mid[3:5, :], axis=0, p="fro"))
-        objective += cvx.sum(10 * alpha * cvx.square(control_diff))
+        objective += cvx.sum(0.1 * alpha * cvx.square(U_mid[0, :]))
+        # objective += cvx.sum(1 * alpha * cvx.square(control_diff))
         # objective += cvx.sum(actuation_effort)
         objective += cvx.sum(distance_traveled)
-        objective += 0.1 * self.variables["p"]
+        objective += 0.3 * self.variables["p"]
         # print(f"integrated: {objective.value}")
         objective += 1000 * cvx.sum(cvx.abs(1 / self.params.K * delta))
         # print(f"plus delta: {objective.value}")
@@ -1085,7 +1089,7 @@ class SpaceshipPlanner:
             cone = np.concatenate(cone)
             cone_min = np.min(cone)
             if cone_min < 0:
-                objective += 100 * np.abs(cone_min)
+                objective += np.abs(cone_min)
 
         return objective.value
 
