@@ -15,6 +15,7 @@ from dg_commons.sim.models.vehicle_utils import VehicleParameters
 import matplotlib
 from matplotlib import pyplot as plt
 import numpy as np
+import scipy as sp
 from scipy.interpolate import CubicSpline
 from itertools import product
 
@@ -38,6 +39,7 @@ class Planner:
         self.player_name = player_name
         self.planning_goal = planning_goal
         self.sim_obs = sim_obs
+        self.center_lines = self.compute_center_lines_coefficients()
 
     def sample_points_on_lane(self, lane_id: int, num_points: int) -> Sequence[np.ndarray]:
         lanelet = self.lanelet_network.find_lanelet_by_id(lane_id)
@@ -98,6 +100,8 @@ class Planner:
         bc_type = ((1, bc_value_init), (1, bc_value_end))
         cubic_spline = CubicSpline(x_coords, y_coords, bc_type=bc_type)
 
+        # Coefficients of the spline for the smoothness term
+        # coefficients = cubic_spline.c
         # Generate discretized points along the spline
         xs = np.linspace(min(x_coords), max(x_coords), 20)  # 20 discretized points
         ys = cubic_spline(xs)
@@ -179,10 +183,35 @@ class Planner:
 
         # Merge splines to get all possible paths
         all_paths = self.get_all_possible_paths(all_discretized_splines)
-
+        min_objective_value = float("inf")
+        best_path = None
+        for path in all_paths:
+            objective_value = self.objective_function(path.center_vertices)
+            if objective_value < min_objective_value:
+                min_objective_value = objective_value
+                best_path = path
         # TODO, implement the logic to select the best spline
         # return random path
-        return all_paths[random.randint(0, len(all_paths) - 1)]
+        return best_path
+
+    def objective_function(self, spline: List[Tuple[float, float]]) -> float:
+        objective_value = 0.0
+        for point in spline:
+            # Smoothness term
+            # TODO I'd like to do this analytically with the coefficients of the spline and evaluating the integrals but
+            # an appropriate data structure would be needed
+            # Collision term
+            objective_value += 0.0  # TODO Implement collision module
+            # Guidance term
+            if self.lanelet_network.find_lanelet_by_position([point]) == [[]]:  # Why isn't the point in the lanelet?
+                continue
+            lane_id = self.lanelet_network.find_lanelet_by_position([point])[0][0]
+            a, b, c = self.center_lines[lane_id]
+            distance = self.distance_point_to_line_2d(a, b, c, point[0], point[1])
+            objective_value += (
+                distance  # not super correct, should be an integra (as long as we compute intergrals is okay??)
+            )
+        return objective_value
 
     def get_path_from_waypoints(self, waypoints: Sequence[np.ndarray]) -> Lanelet:
         """
@@ -223,6 +252,55 @@ class Planner:
         )
 
         return lanelet
+
+    def compute_center_lines_coefficients(self):
+        """
+        Compute a dictionary of lanelet line coefficients (a, b, c) for each lanelet.
+
+        Parameters:
+        lanelet_network: An object containing lanelets, where each lanelet has an ID and center points.
+
+        Returns:
+        dict: A dictionary where keys are lanelet IDs and values are the coefficients (a, b, c) of the line
+            passing through the first and last center points.
+        """
+        lanelet_lines = {}
+
+        for lanelet in self.lanelet_network.lanelets:
+            lanelet_id = lanelet.lanelet_id
+            center_points = np.array(lanelet.center_vertices)
+
+            # Extract the first and last points
+            p1 = center_points[0]
+            p2 = center_points[-1]
+
+            # Compute the line coefficients
+            # Line equation: ax + by + c = 0
+            # a = y2 - y1
+            # b = x1 - x2
+            # c = x2*y1 - x1*y2
+            a = p2[1] - p1[1]
+            b = p1[0] - p2[0]
+            c = p2[0] * p1[1] - p1[0] * p2[1]
+
+            # Store the coefficients in the dictionary
+            lanelet_lines[lanelet_id] = [a, b, c]
+        return lanelet_lines
+
+    def distance_point_to_line_2d(self, a, b, c, x1, y1):
+        """
+        Compute the distance from a point to a line in 2D general form.
+
+        Parameters:
+        a, b, c (float): Coefficients of the line ax + by + c = 0.
+        x1, y1 (float): Coordinates of the point.
+
+        Returns:
+        float: The perpendicular distance from the point to the line.
+        """
+        # Compute the distance using the general formula
+        distance = abs(a * x1 + b * y1 + c) / np.sqrt(a**2 + b**2)
+        return distance
 
 
 # Example usage
