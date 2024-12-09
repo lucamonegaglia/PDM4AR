@@ -133,7 +133,7 @@ class SpaceshipPlanner:
         if isinstance(goal_state, DockingTarget):
             self.is_docking = True
             self.arms_length = goal_state.arms_length
-            self.A, self.B, self.C, self.A1, self.A2, p = goal_state.get_landing_constraint_points()
+            self.A, self.B, self.C, self.A1, self.A2, p = goal_state.get_landing_constraint_points_fix()
             print(f"A {self.A1} a2 {self.A2}")
         self.goal_state = goal_state.target
 
@@ -838,7 +838,7 @@ class SpaceshipPlanner:
             center_x = (self.A1[0] + self.A2[0]) / 2
             center_y = (self.A1[1] + self.A2[1]) / 2
             a = dist_base / 2 + self.sg.l_f + self.sg.l_c  # semiasse maggiore
-            b = 0.3  # semiasse minore
+            b = 0.3
             s_function[i] = (
                 -(((x[0] - center_x) * np.cos(theta) + (x[1] - center_y) * np.sin(theta)) ** 2) / (a**2)
                 - (((x[0] - center_x) * np.sin(theta) - (x[1] - center_y) * np.cos(theta)) ** 2) / (b**2)
