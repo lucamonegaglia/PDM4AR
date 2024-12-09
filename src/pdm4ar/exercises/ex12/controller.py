@@ -2,7 +2,7 @@ from mimetypes import init
 import random
 from dataclasses import dataclass
 from turtle import left
-from typing import Sequence, Callable, Tuple
+from typing import Sequence, Callable, Tuple, Optional
 
 from commonroad.scenario.lanelet import LaneletNetwork, Lanelet
 from dg_commons import PlayerName
@@ -132,6 +132,12 @@ class PurePursuitController:
 
         return VehicleCommands(acc=acc, ddelta=ddelta)
 
+    def update_path(self, new_path: Lanelet):
+        self.steer_controller.update_reference_path(new_path)
+
+    def update_speed_reference(self, reference: Optional[float] = None):
+        self.speed_controller.controller.update_reference(reference)
+
 
 class HL_SpeedController:
     def __init__(self):
@@ -143,10 +149,14 @@ class HL_SpeedController:
         self.controller.update_measurement(current_state.vx)
         return self.controller.get_control(at=current_time)
 
-    def update_speed_reference(self):
-        """Placeholder, ideally should be an intelligent speed reference considering obstacles and stuff"""
-        constant_speed = 1
-        self.controller.update_reference(constant_speed)
+    def update_speed_reference(self, reference: Optional[float] = None):
+        """TODO, ideally should be an intelligent speed reference considering obstacles and stuff"""
+        if reference is None:  # let the controller decide (stupid logic for now)
+            constant_speed = 10
+            reference = constant_speed
+            self.controller.update_reference(constant_speed)
+        else:  # set the reference to the given value
+            self.controller.update_reference(reference)
 
 
 class HL_SteerController:

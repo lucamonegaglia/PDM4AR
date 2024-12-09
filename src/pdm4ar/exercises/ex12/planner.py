@@ -3,7 +3,7 @@ import random
 from dataclasses import dataclass
 from typing import Sequence, List, Tuple
 
-from commonroad.scenario.lanelet import LaneletNetwork
+from commonroad.scenario.lanelet import LaneletNetwork, Lanelet
 from dg_commons import PlayerName
 from dg_commons.sim.goals import PlanningGoal
 from dg_commons.sim import SimObservations, InitSimObservations
@@ -52,13 +52,17 @@ class Planner:
 
         # Find the closest vertex to ego_position
         distance = np.linalg.norm(center_vertices[0] - ego_position)
-        print("Centers", lanelet.center_vertices)
+        # print("Centers", lanelet.center_vertices)
+
         # Sample evenly spaced points starting from s_start
-        s = np.linspace(
-            distance + self.sim_obs.players["Ego"].state.vx,
-            distance + self.sim_obs.players["Ego"].state.vx * 5,
-            num_points,
-        )
+        # s = np.linspace(
+        #     distance + self.sim_obs.players["Ego"].state.vx,
+        #     distance + self.sim_obs.players["Ego"].state.vx * 5,
+        #     num_points,
+        # )
+
+        # Sample points until end of the lanelet, solo per visualizzare perdonami genny
+        s = np.linspace(distance + self.sim_obs.players["Ego"].state.vx, lanelet.distance[-1], num_points)
 
         sampled_points = []
         for i in range(num_points):
@@ -151,6 +155,74 @@ class Planner:
     def get_goal_lane_id(self) -> int:
         # Implementation for getting the goal lane ID
         pass
+
+    def get_all_possible_paths(self, all_discretized_splines: List[List[Tuple[float, float]]]) -> List[Lanelet]:
+        # Implementation for getting all possible paths
+        all_paths = []
+
+        # Merge splines that have common start/end points
+        # TODO merge più spline consecutive, qui sono solo due
+        merged_splines = []
+        for i, spline1 in enumerate(all_discretized_splines):
+            for j, spline2 in enumerate(all_discretized_splines):
+                if i != j and np.allclose(spline1[-1], spline2[0]):
+                    merged_splines.append(spline1 + spline2[1:])
+
+        # Convert merged splines to Lanelet objects
+        for merged_spline in merged_splines:
+            lanelet = self.get_path_from_waypoints(merged_spline)
+            all_paths.append(lanelet)
+
+        return all_paths
+
+    def get_best_path(self, all_discretized_splines: List[List[Tuple[float, float]]]) -> Lanelet:
+
+        # Merge splines to get all possible paths
+        all_paths = self.get_all_possible_paths(all_discretized_splines)
+
+        # TODO, implement the logic to select the best spline
+        # return random path
+        return all_paths[random.randint(0, len(all_paths) - 1)]
+
+    def get_path_from_waypoints(self, waypoints: Sequence[np.ndarray]) -> Lanelet:
+        """
+        Generate a path (Lanelet object) from waypoints (coming from one spline), treating them as center of the virtual lanelet.
+        """
+        assert all(
+            isinstance(point, tuple) and len(point) == 2 for point in waypoints
+        ), "Waypoints must be a list of tuples like [(x0, y0), (x1, y1), ...]"
+
+        center_points = np.asarray(waypoints)
+        radius = 1.5  # Example radius for left and right points
+
+        # Calculate direction vectors
+        directions = np.diff(center_points, axis=0)
+        norms = np.linalg.norm(directions, axis=1).reshape(-1, 1)
+        directions /= norms
+
+        # Calculate perpendicular vectors (+pi/2 rotation)
+        perp_vectors = np.column_stack((-directions[:, 1], directions[:, 0]))
+
+        # Calculate left and right points
+        left_points = center_points[:-1] + radius * perp_vectors
+        right_points = center_points[:-1] - radius * perp_vectors
+
+        # Add the last point
+        last_perp_vector = perp_vectors[-1]
+        left_points = np.vstack([left_points, center_points[-1] + radius * last_perp_vector])
+        right_points = np.vstack([right_points, center_points[-1] - radius * last_perp_vector])
+
+        # Create the Lanelet object
+        lanelet_ids = [lanelet.lanelet_id for lanelet in self.lanelet_network.lanelets]
+        lanelet_id = max(lanelet_ids, default=0) + 1
+        lanelet = Lanelet(
+            left_vertices=left_points,
+            center_vertices=center_points,
+            right_vertices=right_points,
+            lanelet_id=lanelet_id,  # Set to a unique ID
+        )
+
+        return lanelet
 
 
 # Example usage
