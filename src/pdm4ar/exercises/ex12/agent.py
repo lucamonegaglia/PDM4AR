@@ -16,6 +16,7 @@ import numpy as np
 from pdm4ar.exercises.ex12.planner import Planner
 from pdm4ar.exercises.ex12.controller import PurePursuitController
 from pdm4ar.exercises_def.ex09 import goal
+from shapely.geometry import Point
 
 
 @dataclass(frozen=True)
@@ -55,6 +56,8 @@ class Pdm4arAgent(Agent):
         # print("Control points: ", self.control_points)
         self.goal_lanelet_id = self.lanelet_network.find_lanelet_by_position([self.control_points[1].q.p])[0][0]
         print("Goal lanelet id: ", self.goal_lanelet_id)
+        self.myplanner = Planner(self.lanelet_network, self.name, self.goal)
+
         # print(init_obs.dg_scenario.lanelet_network)
         # print(init_obs.dg_scenario.lanelet_network.find_lanelet_by_position())
 
@@ -79,16 +82,28 @@ class Pdm4arAgent(Agent):
             ego_position = np.array([sim_obs.players["Ego"].state.x, sim_obs.players["Ego"].state.y])
             print("Position: ", ego_position)
 
-            current_ego_lanelet_id = self.lanelet_network.find_lanelet_by_position([ego_position])[0][0]
+            l = self.lanelet_network.find_lanelet_by_position([ego_position])[0]
+            if l[0]:
+                print("Outside of lane")
+                return VehicleCommands(acc=0, ddelta=0)
+            current_ego_lanelet_id = l[0]
 
             ego_lanelet = self.lanelet_network.find_lanelet_by_id(current_ego_lanelet_id)
             goal_lanelet = self.lanelet_network.find_lanelet_by_id(self.goal_lanelet_id)
 
-            distance_to_goal_lanelet = np.linalg.norm(ego_position - goal_lanelet.center_vertices[0])
+            # vector of goal wrt to position and normalized direction of player lanelet, used to determine if goal is in front of us or behind us
+            r_to_goal_lanelet = goal_lanelet.center_vertices[0] - ego_position
+            direction_player_lanelet = (
+                ego_lanelet.center_vertices[1] - ego_lanelet.center_vertices[0]
+            ) / np.linalg.norm(ego_lanelet.center_vertices[1] - ego_lanelet.center_vertices[0])
 
+            signed_dist_to_goal_lane = np.dot(r_to_goal_lanelet, direction_player_lanelet)
+            dist_to_goal = self.goal.goal_polygon.distance(Point(ego_position))
+            if dist_to_goal < sim_obs.players["Ego"].state.vx * 5:
+                print("Close to goal, sampling stopped")
+                return self.mycontroller.compute_control(sim_obs.players["Ego"].state, float(sim_obs.time))
             # print("Ego Lanelet Points", ego_lanelet.center_vertices)
             # print("Goal Lanelet Points", goal_lanelet.center_vertices)
-            self.myplanner = Planner(self.lanelet_network, self.name, self.goal, sim_obs, self.sg)
             # self.flag = False
             # self.myplanner.plot_sampled_points(
             #     self.myplanner.sample_points_on_lane(lane_id=current_ego_lanelet_id, num_points=3),
@@ -97,6 +112,9 @@ class Pdm4arAgent(Agent):
             #         self.myplanner.sample_points_on_lane(lane_id=current_ego_lanelet_id, num_points=3)
             #     ),
             # )
+
+            self.myplanner.update_sim_obs(sim_obs)
+
             sampled_points_player_lane, index_init_player, index_end_player = self.myplanner.sample_points_on_lane(
                 lane_id=current_ego_lanelet_id, num_points=3
             )
@@ -107,27 +125,25 @@ class Pdm4arAgent(Agent):
                 sampled_points_player_lane[1][0][0] - sampled_points_player_lane[0][0][0],
             )
             bc_value_end = np.arctan2(
-                sampled_points_player_lane[-1][1][1] - sampled_points_player_lane[-2][1][1],
-                sampled_points_player_lane[-1][1][0] - sampled_points_player_lane[-2][1][0],
+                sampled_points_player_lane[-1][0][1] - sampled_points_player_lane[-2][0][1],
+                sampled_points_player_lane[-1][0][0] - sampled_points_player_lane[-2][0][0],
             )
-            # bc_value_init = self.control_points[index_init_player].q.theta
-            # bc_value_end = self.control_points[index_end_player].q.theta
+
             all_splines_player_lane = self.myplanner.get_all_discretized_splines(
                 sampled_points_player_lane, bc_value_init, bc_value_end
             )
 
             if (
-                distance_to_goal_lanelet < sim_obs.players["Ego"].state.vx * 5
-                and current_ego_lanelet_id != self.goal_lanelet_id
+                current_ego_lanelet_id != self.goal_lanelet_id
+                and signed_dist_to_goal_lane <= sim_obs.players["Ego"].state.vx
             ):
                 sampled_points_goal_lane, index_init_goal, index_end_goal = self.myplanner.sample_points_on_lane(
                     lane_id=self.goal_lanelet_id, num_points=3
                 )
                 print("Sampled points goal lane: ", sampled_points_goal_lane)
                 bc_value_init = self.control_points[index_init_goal].q.theta
-                # print("BC value init: ", bc_value_init)
                 bc_value_end = self.control_points[index_end_goal].q.theta
-                # print("BC value end: ", bc_value_end)
+
                 all_splines_goal_lane = self.myplanner.get_all_discretized_splines(
                     sampled_points_goal_lane, bc_value_init, bc_value_end
                 )
@@ -140,10 +156,6 @@ class Pdm4arAgent(Agent):
             # print(sampled_points_player_lane[0][0][0], sampled_points_player_lane[0][0][1])
             # print(sampled_points_player_lane[0][1][0], sampled_points_player_lane[0][1][1])
             # print(sampled_points_player_lane[0][2][0], sampled_points_player_lane[0][2][1])
-
-            # sampled_points = [
-            #     player + goal for player, goal in zip(sampled_points_player_lane, sampled_points_goal_lane)
-            # ]
 
             self.myplanner.plot_all_discretized_splines(all_splines)
 

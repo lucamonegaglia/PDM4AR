@@ -36,15 +36,16 @@ class Planner:
         lanelet_network: LaneletNetwork,
         player_name: PlayerName,
         planning_goal: PlanningGoal,
-        sim_obs: SimObservations,
         sg: VehicleGeometry,
     ):
         self.lanelet_network = lanelet_network
         self.player_name = player_name
         self.planning_goal = planning_goal
-        self.sim_obs = sim_obs
         self.center_lines = self.compute_center_lines_coefficients()
         self.sg = sg
+
+    def update_sim_obs(self, sim_obs: SimObservations):
+        self.sim_obs = sim_obs
 
     def sample_points_on_lane(self, lane_id: int, num_points: int) -> Sequence[np.ndarray]:
         lanelet = self.lanelet_network.find_lanelet_by_id(lane_id)
@@ -62,13 +63,15 @@ class Planner:
         closest_index = np.argmin(distances)
 
         # Ensure ego_position is between the center_vertices
-        if closest_index == 0:
-            s_start = 0
-        else:
+        if (
+            np.linalg.norm(center_vertices[0] - ego_position) + self.sim_obs.players["Ego"].state.vx
+            < lanelet.distance[-1]
+        ):
             s_start = np.linalg.norm(center_vertices[0] - ego_position) + self.sim_obs.players["Ego"].state.vx
-            # distance = np.linalg.norm(center_vertices[0] - ego_position)
+        else:
+            s_start = 0
 
-        if s_start + self.sim_obs.players["Ego"].state.vx * 5 <= lanelet.distance[-1]:
+        if s_start + self.sim_obs.players["Ego"].state.vx * 5 < lanelet.distance[-1]:
             s_end = s_start + self.sim_obs.players["Ego"].state.vx * 5
         else:
             s_end = lanelet.distance[-1]
@@ -114,8 +117,16 @@ class Planner:
         x_coords = [point[0] for point in sampled_points]
         y_coords = [point[1] for point in sampled_points]
 
+        # Ensure x_coords are in increasing order
+        reverse = False
+        if not np.all(np.diff(x_coords) > 0):
+            print("x_coords are not in increasing order")
+            reverse = True
+            x_coords = x_coords[::-1]
+            bc_type = ((1, bc_value_end), (1, bc_value_init))
+        else:
+            bc_type = ((1, bc_value_init), (1, bc_value_end))
         # Create the cubic spline
-        bc_type = ((1, bc_value_init), (1, bc_value_end))
         cubic_spline = CubicSpline(x_coords, y_coords, bc_type=bc_type)
 
         # Coefficients of the spline for the smoothness term
@@ -123,6 +134,10 @@ class Planner:
         # Generate discretized points along the spline
         xs = np.linspace(min(x_coords), max(x_coords), 20)  # 20 discretized points
         ys = cubic_spline(xs)
+
+        if reverse:
+            xs = xs[::-1]
+            ys = ys[::-1]
 
         # Return discretized points as a list of tuples
         return list(zip(xs, ys))
