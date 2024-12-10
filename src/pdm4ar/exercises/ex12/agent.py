@@ -56,7 +56,7 @@ class Pdm4arAgent(Agent):
         # print("Control points: ", self.control_points)
         self.goal_lanelet_id = self.lanelet_network.find_lanelet_by_position([self.control_points[1].q.p])[0][0]
         print("Goal lanelet id: ", self.goal_lanelet_id)
-        self.myplanner = Planner(self.lanelet_network, self.name, self.goal)
+        self.myplanner = Planner(self.lanelet_network, self.name, self.goal, self.sg)
 
         # print(init_obs.dg_scenario.lanelet_network)
         # print(init_obs.dg_scenario.lanelet_network.find_lanelet_by_position())
@@ -83,7 +83,7 @@ class Pdm4arAgent(Agent):
             print("Position: ", ego_position)
 
             l = self.lanelet_network.find_lanelet_by_position([ego_position])[0]
-            if l[0]:
+            if not l:
                 print("Outside of lane")
                 return VehicleCommands(acc=0, ddelta=0)
             current_ego_lanelet_id = l[0]
@@ -147,10 +147,12 @@ class Pdm4arAgent(Agent):
                 all_splines_goal_lane = self.myplanner.get_all_discretized_splines(
                     sampled_points_goal_lane, bc_value_init, bc_value_end
                 )
+                all_splines = all_splines_goal_lane
             else:
                 all_splines_goal_lane = []
+                all_splines = all_splines_player_lane
 
-            all_splines = all_splines_player_lane + all_splines_goal_lane
+            # all_splines = all_splines_player_lane + all_splines_goal_lane
 
             # print("Number of sampled points: ", len(sampled_points_player_lane[0]) * len(sampled_points_player_lane))
             # print(sampled_points_player_lane[0][0][0], sampled_points_player_lane[0][0][1])

@@ -363,6 +363,17 @@ class Planner:
             m = -a / b
             theta = np.arctan(m)
             self.cars["Ego"].append(self.create_oriented_rectangle(spline[i], theta))
+        for keys in self.sim_obs.players:
+            if keys != "Ego":
+                self.cars[keys] = []
+                x = self.sim_obs.players[keys].state.x
+                y = self.sim_obs.players[keys].state.y
+                vx = self.sim_obs.players[keys].state.vx
+                psi = self.sim_obs.players[keys].state.psi
+                for i in range(len(t)):
+                    x = x + vx * t[i] * np.cos(psi)
+                    y = y + vx * t[i] * np.sin(psi)
+                    self.cars[keys].append(self.create_oriented_rectangle([x, y], psi))
         print("LE MACCHINEEEEEEEE: ", self.cars)
         self.plot_polygons(self.cars)
 
@@ -399,46 +410,47 @@ class Planner:
         # Create the Shapely polygon
         return Polygon(global_corners)
 
-    def plot_polygons(self, cars_dict, key="Ego", title="Shapely Polygons from Dictionary"):
+    def plot_polygons(self, title_prefix="Shapely Polygons from Dictionary"):
         """
-        Plots a list of Shapely polygons stored under a specific key in a dictionary.
+        Plots lists of Shapely polygons stored under all keys in a dictionary.
 
         Args:
             cars_dict (dict): Dictionary containing lists of Shapely Polygon objects.
-            key (str): The key to access the list of polygons in the dictionary.
-            title (str): Title of the plot.
+            title_prefix (str): Prefix for the title of each plot.
         """
-        if key not in cars_dict:
-            raise KeyError(f"The key '{key}' is not in the dictionary.")
+        for key, polygons in self.cars.items():
+            # Ensure that the list contains Shapely Polygons
+            for idx, poly in enumerate(polygons):
+                if not isinstance(poly, Polygon):
+                    raise TypeError(f"Object at index {idx} under key '{key}' is not a Shapely Polygon: {type(poly)}")
 
-        polygons = cars_dict[key]
+            # Function to plot a single polygon
+            def plot_polygon(ax, polygon, color="blue"):
+                x, y = polygon.exterior.xy
+                ax.plot(x, y, color=color, linewidth=1.5)  # Plot outline
+                ax.fill(x, y, color=color, alpha=0.4)  # Fill interior
 
-        # Ensure that the list contains Shapely Polygons
-        for idx, poly in enumerate(polygons):
-            if not isinstance(poly, Polygon):
-                raise TypeError(f"Object at index {idx} is not a Shapely Polygon: {type(poly)}")
+            # Create a plot for each key
+            fig, ax = plt.subplots(figsize=(8, 6))
 
-        # Function to plot a single polygon
-        def plot_polygon(ax, polygon, color="blue"):
-            x, y = polygon.exterior.xy
-            ax.plot(x, y, color=color, linewidth=1.5)  # Plot outline
-            ax.fill(x, y, color=color, alpha=0.4)  # Fill interior
+            # Plot each polygon with random colors
+            for poly in polygons:
+                plot_polygon(ax, poly, color=(random.random(), random.random(), random.random()))
 
-        # Create a plot
-        fig, ax = plt.subplots(figsize=(8, 6))
+            # Set plot limits and labels
+            title = f"{title_prefix} - {key}"
+            ax.set_title(title)
+            ax.set_xlabel("X")
+            ax.set_ylabel("Y")
+            ax.axis("equal")  # Ensure equal scaling for x and y axes
 
-        # Plot each polygon with random colors
-        for poly in polygons:
-            plot_polygon(ax, poly, color=(random.random(), random.random(), random.random()))
+            # Save the plot for this key
+            filename = f"{key}_polygons.png"
+            plt.savefig(filename)
+            print(f"Saved plot for key '{key}' as {filename}")
 
-        # Set plot limits and labels
-        ax.set_title(title)
-        ax.set_xlabel("X")
-        ax.set_ylabel("Y")
-        ax.axis("equal")  # Ensure equal scaling for x and y axes
-
-        # Display the plot
-        plt.savefig("LE.png")
+            # Close the plot to free memory
+            plt.close(fig)
 
 
 # Example usage
