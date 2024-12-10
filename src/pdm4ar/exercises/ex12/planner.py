@@ -123,7 +123,7 @@ class Planner:
             print("x_coords are not in increasing order")
             reverse = True
             x_coords = x_coords[::-1]
-            bc_type = ((1, bc_value_end), (1, bc_value_init))
+            bc_type = ((1, -bc_value_init), (1, -bc_value_end))
         else:
             bc_type = ((1, bc_value_init), (1, bc_value_end))
         # Create the cubic spline
