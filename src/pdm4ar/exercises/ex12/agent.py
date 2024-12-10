@@ -74,14 +74,15 @@ class Pdm4arAgent(Agent):
 
         # print("Current ego lanelet: ", current_ego_lanelet)
         if self.flag:
+            print(sim_obs.players)
             print("Position: ", sim_obs.players["Ego"].state.x, sim_obs.players["Ego"].state.y)
 
             current_ego_lanelet = self.lanelet_network.find_lanelet_by_position(
                 [np.array([sim_obs.players["Ego"].state.x, sim_obs.players["Ego"].state.y])]
             )[0][0]
-            print("Ego Lanelet Points", self.lanelet_network.find_lanelet_by_id(current_ego_lanelet).center_vertices)
-            print("Goal Lanelet Points", self.lanelet_network.find_lanelet_by_id(self.goal_lanelet_id).center_vertices)
-            self.myplanner = Planner(self.lanelet_network, self.name, self.goal, sim_obs)
+            # print("Ego Lanelet Points", self.lanelet_network.find_lanelet_by_id(current_ego_lanelet).center_vertices)
+            # print("Goal Lanelet Points", self.lanelet_network.find_lanelet_by_id(self.goal_lanelet_id).center_vertices)
+            self.myplanner = Planner(self.lanelet_network, self.name, self.goal, sim_obs, self.sg)
             self.flag = False
             # self.myplanner.plot_sampled_points(
             #     self.myplanner.sample_points_on_lane(lane_id=current_ego_lanelet, num_points=3),
@@ -105,17 +106,17 @@ class Pdm4arAgent(Agent):
             # print("BC value init: ", bc_value_init)
             bc_value_end = self.control_points[index_end_player].q.theta
             # print("BC value end: ", bc_value_end)
-            sampled_points = [
-                player + goal for player, goal in zip(sampled_points_player_lane, sampled_points_goal_lane)
-            ]
+            sampled_points = sampled_points_goal_lane
             all_splines = self.myplanner.get_all_discretized_splines(sampled_points, bc_value_init, bc_value_end)
             self.myplanner.plot_all_discretized_splines(all_splines)
 
             path = self.myplanner.get_best_path(all_splines)
+            self.myplanner.predict_other_cars_positions(path)
+            self.myplanner.plot_all_discretized_splines(path.center_vertices)
             self.mycontroller = PurePursuitController(path)
 
         # rnd_acc = random.random() * self.params.param1
         # rnd_ddelta = (0) * self.params.param1
-        # return VehicleCommands(acc=rnd_acc, ddelta=rnd_ddelta)
+        # return VehicleCommands(acc=-0.2, ddelta=rnd_ddelta)
         # print(f"Speed: {sim_obs.players['Ego'].state.vx}")
         return self.mycontroller.compute_control(sim_obs.players["Ego"].state, float(sim_obs.time))
