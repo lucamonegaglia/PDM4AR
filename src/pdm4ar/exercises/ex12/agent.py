@@ -88,7 +88,7 @@ class Pdm4arAgent(Agent):
 
             # print("Ego Lanelet Points", ego_lanelet.center_vertices)
             # print("Goal Lanelet Points", goal_lanelet.center_vertices)
-            self.myplanner = Planner(self.lanelet_network, self.name, self.goal, sim_obs)
+            self.myplanner = Planner(self.lanelet_network, self.name, self.goal, sim_obs, self.sg)
             # self.flag = False
             # self.myplanner.plot_sampled_points(
             #     self.myplanner.sample_points_on_lane(lane_id=current_ego_lanelet_id, num_points=3),
@@ -149,7 +149,7 @@ class Pdm4arAgent(Agent):
 
             path = self.myplanner.get_best_path(all_splines)
             self.myplanner.predict_other_cars_positions(path)
-            self.myplanner.plot_all_discretized_splines(path.center_vertices)
+            self.myplanner.plot_all_discretized_splines([path.center_vertices])
             self.mycontroller = PurePursuitController(path)
         self.cycle_counter += 1
 
