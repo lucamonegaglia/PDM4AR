@@ -51,18 +51,31 @@ class Planner:
         center_vertices = lanelet.center_vertices
 
         # Find the closest vertex to ego_position
-        distance = np.linalg.norm(center_vertices[0] - ego_position)
+        distances = np.linalg.norm(center_vertices - ego_position, axis=1)
+        closest_index = np.argmin(distances)
+
+        # Ensure ego_position is between the center_vertices
+        if closest_index == 0:
+            s_start = 0
+        else:
+            s_start = np.linalg.norm(center_vertices[0] - ego_position) + self.sim_obs.players["Ego"].state.vx
+            # distance = np.linalg.norm(center_vertices[0] - ego_position)
+
+        if s_start + self.sim_obs.players["Ego"].state.vx * 5 <= lanelet.distance[-1]:
+            s_end = s_start + self.sim_obs.players["Ego"].state.vx * 5
+        else:
+            s_end = lanelet.distance[-1]
         # print("Centers", lanelet.center_vertices)
 
         # Sample evenly spaced points starting from s_start
-        # s = np.linspace(
-        #     distance + self.sim_obs.players["Ego"].state.vx,
-        #     distance + self.sim_obs.players["Ego"].state.vx * 5,
-        #     num_points,
-        # )
+        s = np.linspace(
+            s_start,
+            s_end,
+            num_points,
+        )
 
         # Sample points until end of the lanelet, solo per visualizzare perdonami genny
-        s = np.linspace(distance + self.sim_obs.players["Ego"].state.vx, lanelet.distance[-1], num_points)
+        # s = np.linspace(s_start, lanelet.distance[-1], num_points)
 
         sampled_points = []
         for i in range(num_points):
@@ -161,7 +174,7 @@ class Planner:
         all_paths = []
 
         # Merge splines that have common start/end points
-        # TODO merge più spline consecutive, qui sono solo due
+        # TODO merge più spline consecutive, qui sono solo due. oppure dynamic programming, ogni spline ha il suo stage cost e si cerca best path
         merged_splines = []
         for i, spline1 in enumerate(all_discretized_splines):
             for j, spline2 in enumerate(all_discretized_splines):
