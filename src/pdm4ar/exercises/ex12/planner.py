@@ -37,12 +37,14 @@ class Planner:
         player_name: PlayerName,
         planning_goal: PlanningGoal,
         sg: VehicleGeometry,
+        goal_lanelet_id: int,
     ):
         self.lanelet_network = lanelet_network
         self.player_name = player_name
         self.planning_goal = planning_goal
         self.center_lines = self.compute_center_lines_coefficients()
         self.sg = sg
+        self.goal_lanelet_id = goal_lanelet_id
 
     def update_sim_obs(self, sim_obs: SimObservations):
         self.sim_obs = sim_obs
@@ -200,10 +202,12 @@ class Planner:
         # Merge splines that have common start/end points
         # TODO merge più spline consecutive, qui sono solo due. oppure dynamic programming, ogni spline ha il suo stage cost e si cerca best path
         merged_splines = []
-        for i, spline1 in enumerate(all_discretized_splines):
-            for j, spline2 in enumerate(all_discretized_splines):
-                if i != j and np.allclose(spline1[-1], spline2[0]):
-                    merged_splines.append(spline1 + spline2[1:])
+        for spline1 in all_discretized_splines:
+            if np.allclose(spline1[0], self.ego_position):
+                for spline2 in all_discretized_splines:
+                    if np.allclose(spline1[-1], spline2[0]):
+                        spline = spline1 + spline2[1:]
+                        merged_splines.append(spline)
 
         # Convert merged splines to Lanelet objects
         for merged_spline in merged_splines:
@@ -282,11 +286,10 @@ class Planner:
                 []
             ]:  # Why isn't the point in the lanelet?
                 continue
-            lane_id = self.lanelet_network.find_lanelet_by_position([spline[i]])[0][0]
-            a, b, c = self.center_lines[lane_id]
+            a, b, c = self.center_lines[self.goal_lanelet_id]
             distance = self.distance_point_to_line_2d(a, b, c, spline[i][0], spline[i][1])
             objective_value += (
-                distance  # not super correct, should be an integra (as long as we compute intergrals is okay??)
+                distance  # not super correct, should be an integral (as long as we don't compute intergrals is okay??)
             )
         objective_value -= vx
         return objective_value

@@ -56,7 +56,7 @@ class Pdm4arAgent(Agent):
         # print("Control points: ", self.control_points)
         self.goal_lanelet_id = self.lanelet_network.find_lanelet_by_position([self.control_points[1].q.p])[0][0]
         print("Goal lanelet id: ", self.goal_lanelet_id)
-        self.myplanner = Planner(self.lanelet_network, self.name, self.goal, self.sg)
+        self.myplanner = Planner(self.lanelet_network, self.name, self.goal, self.sg, self.goal_lanelet_id)
 
         # print(init_obs.dg_scenario.lanelet_network)
         # print(init_obs.dg_scenario.lanelet_network.find_lanelet_by_position())
@@ -101,7 +101,7 @@ class Pdm4arAgent(Agent):
             dist_to_goal = self.goal.goal_polygon.distance(Point(ego_position))
             if dist_to_goal < sim_obs.players["Ego"].state.vx * 5:
                 print("Close to goal, sampling stopped")
-                return VehicleCommands(acc=0, ddelta=0)
+                return self.mycontroller.compute_control(sim_obs.players["Ego"].state, float(sim_obs.time))
 
             # print("Ego Lanelet Points", ego_lanelet.center_vertices)
             # print("Goal Lanelet Points", goal_lanelet.center_vertices)
