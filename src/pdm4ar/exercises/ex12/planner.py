@@ -19,7 +19,7 @@ import numpy as np
 import scipy as sp
 from scipy.interpolate import CubicSpline
 from itertools import product
-
+from rtree import index
 from shapely import Polygon
 
 matplotlib.use("Agg")
@@ -46,6 +46,12 @@ class Planner:
 
     def update_sim_obs(self, sim_obs: SimObservations):
         self.sim_obs = sim_obs
+        self.ego_position = np.array([sim_obs.players["Ego"].state.x, sim_obs.players["Ego"].state.y])
+        l = self.lanelet_network.find_lanelet_by_position([self.ego_position])[0]
+        if not l:
+            print("Outside of lane")
+            return VehicleCommands(acc=0, ddelta=0)
+        self.current_ego_lanelet_id = l[0]
 
     def sample_points_on_lane(self, lane_id: int, num_points: int) -> Sequence[np.ndarray]:
         lanelet = self.lanelet_network.find_lanelet_by_id(lane_id)
@@ -53,28 +59,23 @@ class Planner:
             raise ValueError(f"Lanelet with id {lane_id} not found")
 
         # Get Ego's current position
-        ego_position = np.array([self.sim_obs.players["Ego"].state.x, self.sim_obs.players["Ego"].state.y])
+        self.ego_position = np.array([self.sim_obs.players["Ego"].state.x, self.sim_obs.players["Ego"].state.y])
 
         # Project Ego's position onto the centerline to get the starting arc length
         center_vertices = lanelet.center_vertices
 
-        # Find the closest vertex to ego_position
-        distances = np.linalg.norm(center_vertices - ego_position, axis=1)
-        closest_index = np.argmin(distances)
-
-        # Ensure ego_position is between the center_vertices
-        if (
-            np.linalg.norm(center_vertices[0] - ego_position) + self.sim_obs.players["Ego"].state.vx
-            < lanelet.distance[-1]
+        # Ensure self.ego_position is between the center_vertices
+        if np.linalg.norm(center_vertices[0] - self.ego_position) + self.sim_obs.players["Ego"].state.vx < np.max(
+            lanelet.distance
         ):
-            s_start = np.linalg.norm(center_vertices[0] - ego_position) + self.sim_obs.players["Ego"].state.vx
+            s_start = np.linalg.norm(center_vertices[0] - self.ego_position) + self.sim_obs.players["Ego"].state.vx
         else:
             s_start = 0
 
-        if s_start + self.sim_obs.players["Ego"].state.vx * 5 < lanelet.distance[-1]:
+        if s_start + self.sim_obs.players["Ego"].state.vx * 5 < np.max(lanelet.distance):
             s_end = s_start + self.sim_obs.players["Ego"].state.vx * 5
         else:
-            s_end = lanelet.distance[-1]
+            s_end = np.max(lanelet.distance)
         # print("Centers", lanelet.center_vertices)
 
         # Sample evenly spaced points starting from s_start
@@ -120,10 +121,10 @@ class Planner:
         # Ensure x_coords are in increasing order
         reverse = False
         if not np.all(np.diff(x_coords) > 0):
-            print("x_coords are not in increasing order")
+            # print("x_coords are not in increasing order")
             reverse = True
-            x_coords = x_coords[::-1]
-            bc_type = ((1, -bc_value_init), (1, -bc_value_end))
+            x_coords = -np.array(x_coords)
+            bc_type = ((1, np.pi - bc_value_init), (1, np.pi - bc_value_end))
         else:
             bc_type = ((1, bc_value_init), (1, bc_value_end))
         # Create the cubic spline
@@ -136,8 +137,7 @@ class Planner:
         ys = cubic_spline(xs)
 
         if reverse:
-            xs = xs[::-1]
-            ys = ys[::-1]
+            xs = -xs
 
         # Return discretized points as a list of tuples
         return list(zip(xs, ys))
@@ -152,21 +152,21 @@ class Planner:
 
         # Generate Cartesian product of all combinations of center, left, and right points
         # point_combinations = product(*sampled_points_list)  # Cartesian product
-        ego_position = np.array([self.sim_obs.players["Ego"].state.x, self.sim_obs.players["Ego"].state.y])
+        self.ego_position = np.array([self.sim_obs.players["Ego"].state.x, self.sim_obs.players["Ego"].state.y])
 
         point_combinations = []
         for i in range(len(sampled_points_list) - 1):
             layer_combinations = list(product(sampled_points_list[i], sampled_points_list[i + 1]))
             point_combinations += layer_combinations
         for i, item in enumerate(sampled_points_list[0]):
-            point_combinations.append((ego_position, item))
+            point_combinations.append((self.ego_position, item))
         # print("Point combinations: ", point_combinations)
         i = 0
         for combination in point_combinations:
             spline_points = self.get_discretized_spline(combination, bc_value_init, bc_value_end)
             all_discretized_splines.append(spline_points)
             i += 1
-        print("Number of splines: ", i)
+        # print("Number of splines: ", i)
         return all_discretized_splines
 
     def plot_all_discretized_splines(
@@ -210,6 +210,8 @@ class Planner:
             lanelet = self.get_path_from_waypoints(merged_spline)
             all_paths.append(lanelet)
 
+        if not all_paths:
+            print("No possible paths found")
         return all_paths
 
     def get_best_path(self, all_discretized_splines: List[List[Tuple[float, float]]]) -> Lanelet:
@@ -219,23 +221,62 @@ class Planner:
         min_objective_value = float("inf")
         best_path = None
         for path in all_paths:
-            objective_value = self.objective_function(path.center_vertices)
+            objective_value = self.objective_function(path.center_vertices, self.sim_obs.players["Ego"].state.vx)
+            vx_slow = self.find_vx()
+            objective_value_slow = self.objective_function(path.center_vertices, vx_slow)
             if objective_value < min_objective_value:
                 min_objective_value = objective_value
                 best_path = path
+                vx = self.sim_obs.players["Ego"].state.vx
+            if objective_value_slow < min_objective_value:
+                min_objective_value = objective_value_slow
+                best_path = path
+                vx = vx_slow
+
         # TODO, implement the logic to select the best spline
         # return random path
-        return best_path
+        if min_objective_value > 10000:
+            print("Ho preso il muro fratelli!")
+        return best_path, vx
 
-    def objective_function(self, spline: List[Tuple[float, float]]) -> float:
+    def find_vx(self):
+        min_dist = float("inf")
+        vx = self.sim_obs.players["Ego"].state.vx
+        for keys in self.sim_obs.players:
+            if keys != "Ego":
+                lane_id = self.lanelet_network.find_lanelet_by_position(
+                    [np.array([self.sim_obs.players[keys].state.x, self.sim_obs.players[keys].state.y])]
+                )[0][0]
+
+                if lane_id == self.current_ego_lanelet_id:
+                    r_to_car = (
+                        np.array([self.sim_obs.players[keys].state.x, self.sim_obs.players[keys].state.y])
+                        - self.ego_position
+                    )
+                    direction_player_lanelet = (
+                        self.lanelet_network.find_lanelet_by_id(self.current_ego_lanelet_id).center_vertices[1]
+                        - self.lanelet_network.find_lanelet_by_id(self.current_ego_lanelet_id).center_vertices[0]
+                    ) / np.linalg.norm(
+                        self.lanelet_network.find_lanelet_by_id(self.current_ego_lanelet_id).center_vertices[1]
+                        - self.lanelet_network.find_lanelet_by_id(self.current_ego_lanelet_id).center_vertices[0]
+                    )
+
+                    signed_dist_to_car = np.dot(r_to_car, direction_player_lanelet)
+                    if signed_dist_to_car < min_dist and signed_dist_to_car > 0:
+                        min_dist = signed_dist_to_car
+                        vx = self.sim_obs.players[keys].state.vx
+        return vx
+
+    def objective_function(self, spline: List[Tuple[float, float]], vx) -> float:
         objective_value = 0.0
+        self.predict_other_cars_positions(spline, vx)
+        collisions = self.detect_collisions()
+        if any(collisions[timestep] for timestep in collisions):
+            objective_value += 1000000
         for i in range(len(spline)):
             # Smoothness term
             # TODO I'd like to do this analytically with the coefficients of the spline and evaluating the integrals but
             # an appropriate data structure would be needed
-            # Collision term
-            if False:
-                objective_value += 1000  # TODO Implement collision module
             # Guidance term
             if self.lanelet_network.find_lanelet_by_position([spline[i]]) == [
                 []
@@ -247,6 +288,7 @@ class Planner:
             objective_value += (
                 distance  # not super correct, should be an integra (as long as we compute intergrals is okay??)
             )
+        objective_value -= vx
         return objective_value
 
     def get_path_from_waypoints(self, waypoints: Sequence[np.ndarray]) -> Lanelet:
@@ -338,7 +380,7 @@ class Planner:
         distance = abs(a * x1 + b * y1 + c) / np.sqrt(a**2 + b**2)
         return distance
 
-    def predict_other_cars_positions(self, splines) -> List[Polygon]:
+    def predict_other_cars_positions(self, spline, vx) -> List[Polygon]:
         """
         Predict the future positions of static obstacles.
 
@@ -350,32 +392,31 @@ class Planner:
         """
         ego_x = self.sim_obs.players["Ego"].state.x
         ego_y = self.sim_obs.players["Ego"].state.y
-        ego_vx = self.sim_obs.players["Ego"].state.vx
-        t = [0]
+        ego_vx = vx
+        timesteps = [0]
         self.cars = {}
         self.cars["Ego"] = []
-        spline = splines.center_vertices
         for i in range(len(spline) - 1):
             distance = np.linalg.norm(spline[i] - spline[i + 1])
-            t.append(distance / ego_vx)
+            timesteps.append(distance / ego_vx)
             a = spline[i + 1][1] - spline[i][1]
             b = spline[i][0] - spline[i + 1][0]
             m = -a / b
             theta = np.arctan(m)
             self.cars["Ego"].append(self.create_oriented_rectangle(spline[i], theta))
-        for keys in self.sim_obs.players:
-            if keys != "Ego":
-                self.cars[keys] = []
-                x = self.sim_obs.players[keys].state.x
-                y = self.sim_obs.players[keys].state.y
-                vx = self.sim_obs.players[keys].state.vx
-                psi = self.sim_obs.players[keys].state.psi
-                for i in range(len(t)):
-                    x = x + vx * t[i] * np.cos(psi)
-                    y = y + vx * t[i] * np.sin(psi)
-                    self.cars[keys].append(self.create_oriented_rectangle([x, y], psi))
-        print("LE MACCHINEEEEEEEE: ", self.cars)
-        self.plot_polygons(self.cars)
+        for car in self.sim_obs.players:
+            if car != "Ego":
+                self.cars[car] = []
+                x = self.sim_obs.players[car].state.x
+                y = self.sim_obs.players[car].state.y
+                vx = self.sim_obs.players[car].state.vx
+                psi = self.sim_obs.players[car].state.psi
+                for t in timesteps:
+                    x = x + vx * t * np.cos(psi)
+                    y = y + vx * t * np.sin(psi)
+                    self.cars[car].append(self.create_oriented_rectangle([x, y], psi))
+        # print("LE MACCHINEEEEEEEE: ", self.cars)
+        # self.plot_polygons(self.cars)
 
     def create_oriented_rectangle(self, center, theta):
         """
@@ -451,6 +492,58 @@ class Planner:
 
             # Close the plot to free memory
             plt.close(fig)
+
+    def bounding_boxes_intersect(self, rect1, rect2):
+        return (
+            rect1[0] < rect2[2]  # rect1's left edge is to the left of rect2's right edge
+            and rect1[2] > rect2[0]  # rect1's right edge is to the right of rect2's left edge
+            and rect1[1] < rect2[3]  # rect1's bottom edge is below rect2's top edge
+            and rect1[3] > rect2[1]  # rect1's top edge is above rect2's bottom edge
+        )
+
+    def detect_collisions(self):
+        """
+        Detects collisions between the "Ego" car and all other cars at each timestep.
+
+        Args:
+            cars: Dictionary of cars where keys are car names and values are lists of
+                bounding boxes (min_x, min_y, max_x, max_y) for each timestep.
+
+        Returns:
+            collisions: Dictionary where each key is a timestep, and the value is a list
+                        of car names that collided with the "Ego" car at that timestep.
+        """
+        # Initialize collision storage
+        collisions = {i: [] for i in range(len(self.cars["Ego"]))}
+
+        # Iterate over timesteps
+        for timestep in range(len(self.cars["Ego"])):
+            ego_rect = self.cars["Ego"][timestep]
+
+            # Build R-tree index for other cars at this timestep
+            idx = index.Index()
+            car_to_id = {}  # Map from car name to unique ID for reverse lookup
+            id_counter = 0
+
+            for car, rects in self.cars.items():
+                if car == "Ego":
+                    continue
+                other_rect = rects[timestep]
+                bounds = other_rect.bounds  # Get the bounds of the rectangle
+                idx.insert(id_counter, bounds)  # Insert rectangle bounds into the R-tree
+                car_to_id[id_counter] = car  # Map the ID to the car name
+                id_counter += 1
+
+            # Query potential collisions using R-tree
+            potential_collisions = list(idx.intersection(ego_rect.bounds))
+
+            # Verify potential collisions with bounding box intersection
+            for car_id in potential_collisions:
+                other_rect = self.cars[car_to_id[car_id]][timestep]
+                if ego_rect.intersects(other_rect):
+                    collisions[timestep].append(car_to_id[car_id])
+
+        return collisions
 
 
 # Example usage

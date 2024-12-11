@@ -80,8 +80,8 @@ class Pdm4arAgent(Agent):
         # print("Current ego lanelet: ", current_ego_lanelet_id)
         if self.flag and self.cycle_counter % 10 == 0:
             ego_position = np.array([sim_obs.players["Ego"].state.x, sim_obs.players["Ego"].state.y])
-            print("Position: ", ego_position)
-
+            # print("Position: ", ego_position)
+            print("vx: ", sim_obs.players["Ego"].state.vx)
             l = self.lanelet_network.find_lanelet_by_position([ego_position])[0]
             if not l:
                 print("Outside of lane")
@@ -101,7 +101,8 @@ class Pdm4arAgent(Agent):
             dist_to_goal = self.goal.goal_polygon.distance(Point(ego_position))
             if dist_to_goal < sim_obs.players["Ego"].state.vx * 5:
                 print("Close to goal, sampling stopped")
-                return self.mycontroller.compute_control(sim_obs.players["Ego"].state, float(sim_obs.time))
+                return VehicleCommands(acc=0, ddelta=0)
+
             # print("Ego Lanelet Points", ego_lanelet.center_vertices)
             # print("Goal Lanelet Points", goal_lanelet.center_vertices)
             # self.flag = False
@@ -118,7 +119,7 @@ class Pdm4arAgent(Agent):
             sampled_points_player_lane, index_init_player, index_end_player = self.myplanner.sample_points_on_lane(
                 lane_id=current_ego_lanelet_id, num_points=3
             )
-            print("Sampled points player lane: ", sampled_points_player_lane)
+            # print("Sampled points player lane: ", sampled_points_player_lane)
 
             bc_value_init = np.arctan2(
                 sampled_points_player_lane[1][0][1] - sampled_points_player_lane[0][0][1],
@@ -140,14 +141,14 @@ class Pdm4arAgent(Agent):
                 sampled_points_goal_lane, index_init_goal, index_end_goal = self.myplanner.sample_points_on_lane(
                     lane_id=self.goal_lanelet_id, num_points=3
                 )
-                print("Sampled points goal lane: ", sampled_points_goal_lane)
+                # print("Sampled points goal lane: ", sampled_points_goal_lane)
                 bc_value_init = self.control_points[index_init_goal].q.theta
                 bc_value_end = self.control_points[index_end_goal].q.theta
 
                 all_splines_goal_lane = self.myplanner.get_all_discretized_splines(
                     sampled_points_goal_lane, bc_value_init, bc_value_end
                 )
-                all_splines = all_splines_goal_lane
+                all_splines = all_splines_goal_lane + all_splines_player_lane
             else:
                 all_splines_goal_lane = []
                 all_splines = all_splines_player_lane
@@ -161,10 +162,11 @@ class Pdm4arAgent(Agent):
 
             self.myplanner.plot_all_discretized_splines(all_splines)
 
-            path = self.myplanner.get_best_path(all_splines)
-            self.myplanner.predict_other_cars_positions(path)
+            path, vx = self.myplanner.get_best_path(all_splines)
             self.myplanner.plot_all_discretized_splines([path.center_vertices])
             self.mycontroller = PurePursuitController(path)
+            self.mycontroller.update_speed_reference(vx)
+            print("UPDATED SPEED REF TO", vx)
         self.cycle_counter += 1
 
         # rnd_acc = random.random() * self.params.param1
