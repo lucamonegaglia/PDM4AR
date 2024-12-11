@@ -3,6 +3,7 @@ from mimetypes import init
 import random
 from dataclasses import dataclass
 from typing import Sequence, List, Tuple
+from venv import create
 
 from commonroad.scenario.lanelet import LaneletNetwork, Lanelet
 from dg_commons import PlayerName
@@ -20,6 +21,8 @@ import scipy as sp
 from scipy.interpolate import CubicSpline
 from itertools import product
 
+from shapely import Polygon
+
 matplotlib.use("Agg")
 
 
@@ -34,13 +37,16 @@ class Planner:
         lanelet_network: LaneletNetwork,
         player_name: PlayerName,
         planning_goal: PlanningGoal,
-        sim_obs: SimObservations,
+        sg: VehicleGeometry,
     ):
         self.lanelet_network = lanelet_network
         self.player_name = player_name
         self.planning_goal = planning_goal
-        self.sim_obs = sim_obs
         self.center_lines = self.compute_center_lines_coefficients()
+        self.sg = sg
+
+    def update_sim_obs(self, sim_obs: SimObservations):
+        self.sim_obs = sim_obs
 
     def sample_points_on_lane(self, lane_id: int, num_points: int) -> Sequence[np.ndarray]:
         lanelet = self.lanelet_network.find_lanelet_by_id(lane_id)
@@ -58,13 +64,15 @@ class Planner:
         closest_index = np.argmin(distances)
 
         # Ensure ego_position is between the center_vertices
-        if closest_index == 0:
-            s_start = 0
-        else:
+        if (
+            np.linalg.norm(center_vertices[0] - ego_position) + self.sim_obs.players["Ego"].state.vx
+            < lanelet.distance[-1]
+        ):
             s_start = np.linalg.norm(center_vertices[0] - ego_position) + self.sim_obs.players["Ego"].state.vx
-            # distance = np.linalg.norm(center_vertices[0] - ego_position)
+        else:
+            s_start = 0
 
-        if s_start + self.sim_obs.players["Ego"].state.vx * 5 <= lanelet.distance[-1]:
+        if s_start + self.sim_obs.players["Ego"].state.vx * 5 < lanelet.distance[-1]:
             s_end = s_start + self.sim_obs.players["Ego"].state.vx * 5
         else:
             s_end = lanelet.distance[-1]
@@ -115,8 +123,16 @@ class Planner:
         x_coords = [point[0] for point in sampled_points]
         y_coords = [point[1] for point in sampled_points]
 
+        # Ensure x_coords are in increasing order
+        reverse = False
+        if not np.all(np.diff(x_coords) > 0):
+            print("x_coords are not in increasing order")
+            reverse = True
+            x_coords = x_coords[::-1]
+            bc_type = ((1, -bc_value_init), (1, -bc_value_end))
+        else:
+            bc_type = ((1, bc_value_init), (1, bc_value_end))
         # Create the cubic spline
-        bc_type = ((1, bc_value_init), (1, bc_value_end))
         cubic_spline = CubicSpline(x_coords, y_coords, bc_type=bc_type)
 
         # Coefficients of the spline for the smoothness term
@@ -124,6 +140,10 @@ class Planner:
         # Generate discretized points along the spline
         xs = np.linspace(min(x_coords), max(x_coords), 20)  # 20 discretized points
         ys = cubic_spline(xs)
+
+        if reverse:
+            xs = xs[::-1]
+            ys = ys[::-1]
 
         # Return discretized points as a list of tuples
         return list(zip(xs, ys))
@@ -269,18 +289,21 @@ class Planner:
 
     def objective_function(self, spline: List[Tuple[float, float]]) -> float:
         objective_value = 0.0
-        for point in spline:
+        for i in range(len(spline)):
             # Smoothness term
             # TODO I'd like to do this analytically with the coefficients of the spline and evaluating the integrals but
             # an appropriate data structure would be needed
             # Collision term
-            objective_value += 0.0  # TODO Implement collision module
+            if False:
+                objective_value += 1000  # TODO Implement collision module
             # Guidance term
-            if self.lanelet_network.find_lanelet_by_position([point]) == [[]]:  # Why isn't the point in the lanelet?
+            if self.lanelet_network.find_lanelet_by_position([spline[i]]) == [
+                []
+            ]:  # Why isn't the point in the lanelet?
                 continue
-            lane_id = self.lanelet_network.find_lanelet_by_position([point])[0][0]
+            lane_id = self.lanelet_network.find_lanelet_by_position([spline[i]])[0][0]
             a, b, c = self.center_lines[lane_id]
-            distance = self.distance_point_to_line_2d(a, b, c, point[0], point[1])
+            distance = self.distance_point_to_line_2d(a, b, c, spline[i][0], spline[i][1])
             objective_value += (
                 distance  # not super correct, should be an integra (as long as we compute intergrals is okay??)
             )
@@ -374,6 +397,120 @@ class Planner:
         # Compute the distance using the general formula
         distance = abs(a * x1 + b * y1 + c) / np.sqrt(a**2 + b**2)
         return distance
+
+    def predict_other_cars_positions(self, splines) -> List[Polygon]:
+        """
+        Predict the future positions of static obstacles.
+
+        Parameters:
+        sim_obs (SimObservations): The current simulation observations.
+
+        Returns:
+        List[StaticObstacle]: A list of static obstacles with predicted positions.
+        """
+        ego_x = self.sim_obs.players["Ego"].state.x
+        ego_y = self.sim_obs.players["Ego"].state.y
+        ego_vx = self.sim_obs.players["Ego"].state.vx
+        t = [0]
+        self.cars = {}
+        self.cars["Ego"] = []
+        spline = splines.center_vertices
+        for i in range(len(spline) - 1):
+            distance = np.linalg.norm(spline[i] - spline[i + 1])
+            t.append(distance / ego_vx)
+            a = spline[i + 1][1] - spline[i][1]
+            b = spline[i][0] - spline[i + 1][0]
+            m = -a / b
+            theta = np.arctan(m)
+            self.cars["Ego"].append(self.create_oriented_rectangle(spline[i], theta))
+        for keys in self.sim_obs.players:
+            if keys != "Ego":
+                self.cars[keys] = []
+                x = self.sim_obs.players[keys].state.x
+                y = self.sim_obs.players[keys].state.y
+                vx = self.sim_obs.players[keys].state.vx
+                psi = self.sim_obs.players[keys].state.psi
+                for i in range(len(t)):
+                    x = x + vx * t[i] * np.cos(psi)
+                    y = y + vx * t[i] * np.sin(psi)
+                    self.cars[keys].append(self.create_oriented_rectangle([x, y], psi))
+        print("LE MACCHINEEEEEEEE: ", self.cars)
+        self.plot_polygons(self.cars)
+
+    def create_oriented_rectangle(self, center, theta):
+        """
+        Create a Shapely polygon representing a rectangle centered at a given point, with specified width, length, and orientation.
+
+        Args:
+            center (tuple): Coordinates of the rectangle center (x, y).
+            w_half (float): Half of the rectangle's width.
+            lf (float): Distance from the center to the front.
+            lr (float): Distance from the center to the rear.
+            theta (float): Orientation of the rectangle in radians.
+
+        Returns:
+            shapely.geometry.Polygon: Oriented rectangle as a polygon.
+        """
+        # Rectangle corners in local coordinates (centered at origin)
+        local_corners = np.array(
+            [
+                [self.sg.lf, self.sg.w_half],  # Front right
+                [self.sg.lf, -self.sg.w_half],  # Front left
+                [-self.sg.lr, -self.sg.w_half],  # Rear left
+                [-self.sg.lr, self.sg.w_half],  # Rear right
+            ]
+        )
+
+        # Rotation matrix for the given orientation
+        rotation_matrix = np.array([[np.cos(theta), -np.sin(theta)], [np.sin(theta), np.cos(theta)]])
+
+        # Rotate and translate the corners to global coordinates
+        global_corners = np.dot(local_corners, rotation_matrix.T) + np.array(center)
+
+        # Create the Shapely polygon
+        return Polygon(global_corners)
+
+    def plot_polygons(self, title_prefix="Shapely Polygons from Dictionary"):
+        """
+        Plots lists of Shapely polygons stored under all keys in a dictionary.
+
+        Args:
+            cars_dict (dict): Dictionary containing lists of Shapely Polygon objects.
+            title_prefix (str): Prefix for the title of each plot.
+        """
+        for key, polygons in self.cars.items():
+            # Ensure that the list contains Shapely Polygons
+            for idx, poly in enumerate(polygons):
+                if not isinstance(poly, Polygon):
+                    raise TypeError(f"Object at index {idx} under key '{key}' is not a Shapely Polygon: {type(poly)}")
+
+            # Function to plot a single polygon
+            def plot_polygon(ax, polygon, color="blue"):
+                x, y = polygon.exterior.xy
+                ax.plot(x, y, color=color, linewidth=1.5)  # Plot outline
+                ax.fill(x, y, color=color, alpha=0.4)  # Fill interior
+
+            # Create a plot for each key
+            fig, ax = plt.subplots(figsize=(8, 6))
+
+            # Plot each polygon with random colors
+            for poly in polygons:
+                plot_polygon(ax, poly, color=(random.random(), random.random(), random.random()))
+
+            # Set plot limits and labels
+            title = f"{title_prefix} - {key}"
+            ax.set_title(title)
+            ax.set_xlabel("X")
+            ax.set_ylabel("Y")
+            ax.axis("equal")  # Ensure equal scaling for x and y axes
+
+            # Save the plot for this key
+            filename = f"{key}_polygons.png"
+            plt.savefig(filename)
+            print(f"Saved plot for key '{key}' as {filename}")
+
+            # Close the plot to free memory
+            plt.close(fig)
 
 
 # Example usage
