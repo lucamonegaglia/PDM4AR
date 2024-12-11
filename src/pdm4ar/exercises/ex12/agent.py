@@ -1,6 +1,7 @@
 from mimetypes import init
 import random
 from dataclasses import dataclass
+from tracemalloc import start
 from typing import Sequence
 
 from commonroad.scenario.lanelet import LaneletNetwork
@@ -97,8 +98,8 @@ class Pdm4arAgent(Agent):
             #         self.myplanner.sample_points_on_lane(lane_id=current_ego_lanelet_id, num_points=3)
             #     ),
             # )
-            sampled_points_player_lane, index_init_player, index_end_player = self.myplanner.sample_points_on_lane(
-                lane_id=current_ego_lanelet_id, num_points=3
+            sampled_points_player_lane, index_init_player, index_end_player, dict_points_layer = (
+                self.myplanner.sample_points_on_lane(lane_id=current_ego_lanelet_id, num_points=3)
             )
             print("Sampled points player lane: ", sampled_points_player_lane)
 
@@ -112,8 +113,21 @@ class Pdm4arAgent(Agent):
             )
             # bc_value_init = self.control_points[index_init_player].q.theta
             # bc_value_end = self.control_points[index_end_player].q.theta
-            all_splines_player_lane = self.myplanner.get_all_discretized_splines(
+            all_splines_player_lane, all_splines_player_lane_dict = self.myplanner.get_all_discretized_splines(
                 sampled_points_player_lane, bc_value_init, bc_value_end
+            )
+
+            # start position of the ego vehicle
+            start_position = np.array([sim_obs.players["Ego"].state.x, sim_obs.players["Ego"].state.y])
+            # end position at random from one of the last layer sample points
+            end_position = np.array([sampled_points_player_lane[-1][1][0], sampled_points_player_lane[-1][1][1]])
+            # do graph search for best path
+            best_spline = self.myplanner.graph_search(
+                all_splines_player_lane_dict,
+                sampled_points_player_lane,
+                dict_points_layer,
+                start_position,
+                end_position,
             )
 
             if (
@@ -145,7 +159,7 @@ class Pdm4arAgent(Agent):
             #     player + goal for player, goal in zip(sampled_points_player_lane, sampled_points_goal_lane)
             # ]
 
-            self.myplanner.plot_all_discretized_splines(all_splines)
+            self.myplanner.plot_all_discretized_splines(all_splines, best_spline)
 
             path = self.myplanner.get_best_path(all_splines)
             self.mycontroller = PurePursuitController(path)
