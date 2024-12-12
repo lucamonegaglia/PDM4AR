@@ -1,4 +1,5 @@
 import heapq
+from math import isclose
 from mimetypes import init
 import random
 from dataclasses import dataclass
@@ -44,7 +45,6 @@ class Planner:
         self.lanelet_network = lanelet_network
         self.player_name = player_name
         self.planning_goal = planning_goal
-        self.center_lines = self.compute_center_lines_coefficients()
         self.sg = sg
         self.goal_lanelet_id = goal_lanelet_id
         self.cars = {}
@@ -55,15 +55,15 @@ class Planner:
 
     def where_is_goal(self):
         a_g, b_g, c_g = self.center_lines[self.goal_lanelet_id]
-        print("Goal line: ", a_g, b_g, c_g)
+        # print("Goal line: ", a_g, b_g, c_g)
         a_e, b_e, c_e = self.center_lines[self.current_ego_lanelet_id]
-        print("Ego line: ", a_e, b_e, c_e)
-        if c_g > c_e:
-            print("left")
-        elif c_g == c_e:
-            print("straight")
-        else:
-            print("right")
+        # print("Ego line: ", a_e, b_e, c_e)
+        # if c_g > c_e:
+        #     #print("left")
+        # elif c_g == c_e:
+        #     print("straight")
+        # else:
+        #     print("right")
 
     def update_sim_obs(self, sim_obs: SimObservations):
         self.sim_obs = sim_obs
@@ -86,24 +86,27 @@ class Planner:
         center_vertices = lanelet.center_vertices
 
         # Ensure self.ego_position is between the center_vertices
-        if np.linalg.norm(center_vertices[0] - self.ego_position) + self.sim_obs.players["Ego"].state.vx > np.max(
-            lanelet.distance
-        ):
-            s_start = (
-                np.linalg.norm(center_vertices[0] - self.ego_position)
-                + (np.max(lanelet.distance) - np.linalg.norm(center_vertices[0] - self.ego_position) - 1) / 3
-            )
-            print("S_start: ", s_start)
+        distance = -center_vertices[0] + self.ego_position
+        direction_player_lanelet = (lanelet.center_vertices[-1] - lanelet.center_vertices[0]) / np.linalg.norm(
+            lanelet.center_vertices[-1] - lanelet.center_vertices[0]
+        )
+
+        projected_distance = np.dot(distance, direction_player_lanelet)
+
+        if projected_distance + self.sim_obs.players["Ego"].state.vx > np.max(lanelet.distance):
+            s_start = projected_distance + (np.max(lanelet.distance) - projected_distance - 1) / num_points
+            # print("S_start: ", s_start)
         else:
-            s_start = np.linalg.norm(center_vertices[0] - self.ego_position) + self.sim_obs.players["Ego"].state.vx
+            s_start = projected_distance + self.sim_obs.players["Ego"].state.vx
 
         if s_start + self.sim_obs.players["Ego"].state.vx * 5 < np.max(lanelet.distance):
             s_end = s_start + self.sim_obs.players["Ego"].state.vx * 5
         else:
             s_end = np.max(lanelet.distance)
-            print("S_end: ", s_end)
+            # print("S_end: ", s_end)
         # print("Centers", lanelet.center_vertices)
-
+        if s_end < s_start:
+            return [], 0, 0, {}
         # Sample evenly spaced points starting from s_start
         s = np.linspace(
             s_start,
@@ -145,7 +148,7 @@ class Planner:
         return sampled_points, index_init, index_end, dict_points_layer
 
     def get_discretized_spline(
-        self, sampled_points: Sequence[np.ndarray], bc_value_init, bc_value_end
+        self, point_combination: Sequence[np.ndarray], bc_value_init, bc_value_end, R
     ) -> List[Tuple[float, float]]:
         """
         Generate a cubic spline for three points and discretize it.
@@ -156,22 +159,28 @@ class Planner:
         Returns:
             List[Tuple[float, float]]: Discretized points along the cubic spline.
         """
-
         # Extract x and y coordinates
-        x_coords = [point[0] for point in sampled_points]
-        y_coords = [point[1] for point in sampled_points]
+        x_coords = []
+        y_coords = []
+        for p in point_combination:
+            rotated_sampled_points = R.T @ np.array(p)
+            x_coords.append(rotated_sampled_points[0])
+            y_coords.append(rotated_sampled_points[1])
 
         # Ensure x_coords are in increasing order
-        reverse = False
+        # reverse = False
         if not np.all(np.diff(x_coords) > 0):
-            # print("x_coords are not in increasing order")
-            reverse = True
-            x_coords = -np.array(x_coords)
-            bc_type = ((1, np.pi - bc_value_init), (1, np.pi - bc_value_end))
-        else:
-            bc_type = ((1, bc_value_init), (1, bc_value_end))
+            print("x_coords are not in increasing order")
+            return [], {}
+        #     reverse = True
+        #     x_coords = -np.array(x_coords)
+        #     bc_type = ((1, np.pi - bc_value_init), (1, np.pi - bc_value_end))
+        # else:
+        #     bc_type = ((1, bc_value_init), (1, bc_value_end))
+
         # Create the cubic spline
-        cubic_spline = CubicSpline(x_coords, y_coords, bc_type=bc_type)
+        # cubic_spline = CubicSpline(x_coords, y_coords, bc_type=bc_type)
+        cubic_spline = CubicSpline(x_coords, y_coords, bc_type=((1, 0), (1, 0)))
 
         # Coefficients of the spline for the smoothness term
         # coefficients = cubic_spline.c
@@ -179,9 +188,9 @@ class Planner:
         xs = np.linspace(min(x_coords), max(x_coords), 20)  # 20 discretized points
         ys = cubic_spline(xs)
 
-        if reverse:
-            xs = -xs
-
+        # if reverse:
+        #     xs = -xs
+        xs, ys = R @ np.array([xs, ys])
         # Return discretized points as a list of tuples
         return list(zip(xs, ys))
 
@@ -199,15 +208,21 @@ class Planner:
         self.ego_position = np.array([self.sim_obs.players["Ego"].state.x, self.sim_obs.players["Ego"].state.y])
 
         point_combinations = []
+        for i, item in enumerate(sampled_points_list[0]):
+            point_combinations.append((self.ego_position, item))
         for i in range(len(sampled_points_list) - 1):
             layer_combinations = list(product(sampled_points_list[i], sampled_points_list[i + 1]))
             point_combinations += layer_combinations
-        for i, item in enumerate(sampled_points_list[0]):
-            point_combinations.append((self.ego_position, item))
         # print("Point combinations: ", point_combinations)
         i = 0
+        print("Number of splines: ", len(point_combinations))
         for combination in point_combinations:
-            spline_points = self.get_discretized_spline(combination, bc_value_init, bc_value_end)
+            R = np.array(
+                [[np.cos(bc_value_init), -np.sin(bc_value_init)], [np.sin(bc_value_init), np.cos(bc_value_init)]]
+            )
+            spline_points = self.get_discretized_spline(combination, bc_value_init, bc_value_end, R)
+            if not spline_points:
+                continue
             all_discretized_splines.append(spline_points)
             all_discretized_splines_dict[
                 (combination[0][0], combination[0][1], combination[1][0], combination[1][1])
@@ -239,20 +254,25 @@ class Planner:
             cost, current = heapq.heappop(Q)
             if cost > cost_map[(current[0], current[1])]:
                 continue
-            if (current == goal_point).all():
+            if np.isclose(current, goal_point).all():
                 # append to path_to_goal the spline between current and current's parent
                 parent = parent_map[(current[0], current[1])]
                 path_to_goal.append(all_discretized_splines_dict[(parent[0], parent[1], current[0], current[1])])
                 cost_path_to_goal += cost
-                while (current != start_point).all():
+                while not np.isclose(current, start_point).all():
                     parent = parent_map[(current[0], current[1])]
                     path_to_goal.insert(0, all_discretized_splines_dict[(parent[0], parent[1], current[0], current[1])])
                     cost_path_to_goal += cost_map[(current[0], current[1])]
                     current = parent
-                if (path_to_goal[0][0] != start_point).all():
-                    path_to_goal.insert(0, all_discretized_splines_dict[(start_point, path_to_goal[0][0])])
+                if not np.isclose(path_to_goal[0][0], start_point).all():
+                    path_to_goal.insert(
+                        0,
+                        all_discretized_splines_dict[
+                            (start_point[0], start_point[1], path_to_goal[0][0][0], path_to_goal[0][0][1])
+                        ],
+                    )
                 break
-            if dict_points_layer[(current[0], current[1])] == num_layers and (current != start_point).all():
+            if dict_points_layer[(current[0], current[1])] == num_layers and not np.isclose(current, start_point).all():
                 # don't have other neighbors
                 continue
             set_of_neighbors = sampled_points_list[dict_points_layer[(current[0], current[1])]]
@@ -287,7 +307,7 @@ class Planner:
         for spline_points in all_discretized_splines:
             spline_x, spline_y = zip(*spline_points)
             if spline_points in best_spline:
-                print("Ho trovato un pezzo della best spline")
+                # print("Ho trovato un pezzo della best spline")
                 # plot the best spline with a bigger line
                 plt.plot(spline_x, spline_y, linewidth=4)
             else:
@@ -398,6 +418,20 @@ class Planner:
             plt.plot(x, y, label=f"{key} Predicted Position", linewidth=1.5)
             plt.fill(x, y, alpha=0.4)
 
+        x_vals = np.linspace(50, 100, 100)  # Adjust min_x and max_x as needed
+
+        if self.sampling_on_goal_lane:
+            lane_id = self.goal_lanelet_id
+        else:
+            lane_id = self.current_ego_lanelet_id
+        a, b, c = self.center_lines[lane_id]
+
+        # Calculate corresponding y values
+        y_vals = (-a * x_vals - c) / b
+
+        # Plot the line
+        plt.plot(x_vals, y_vals, label="Line ax + by + c = 0", color="red", linewidth=2)
+
         plt.title("Best Path, and Predicted Car Positions at closest timestep")
         plt.xlabel("X Coordinate")
         plt.ylabel("Y Coordinate")
@@ -501,7 +535,7 @@ class Planner:
 
         return lanelet
 
-    def compute_center_lines_coefficients(self):
+    def compute_center_lines_coefficients(self, ego_position):
         """
         Compute a dictionary of lanelet line coefficients (a, b, c) for each lanelet.
 
@@ -519,12 +553,14 @@ class Planner:
             center_points = np.array(lanelet.center_vertices)
 
             # Extract the first and last points
-            p1 = center_points[0]
+
+            distance = np.linalg.norm(center_points - ego_position, axis=1)
+            p1 = center_points[np.argmin(distance)]
             p2 = center_points[-1]
 
             # Compute the line coefficients
             # Line equation: ax + by + c = 0
-            # a = y2 - y1
+            # a = y2 - y1,
             # b = x1 - x2
             # c = x2*y1 - x1*y2
             a = p2[1] - p1[1]
@@ -533,7 +569,7 @@ class Planner:
 
             # Store the coefficients in the dictionary
             lanelet_lines[lanelet_id] = [a, b, c]
-        return lanelet_lines
+        self.center_lines = lanelet_lines
 
     def distance_point_to_line_2d(self, a, b, c, x1, y1):
         """
