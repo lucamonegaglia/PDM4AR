@@ -170,7 +170,7 @@ class Pdm4arAgent(Agent):
                         sampled_points_goal_lane[-1][0][1],
                     ]
                 )
-                print("Sampled points goal lane: ", sampled_points_goal_lane)
+                # print("Sampled points goal lane: ", sampled_points_goal_lane)
                 bc_value_init = self.control_points[index_init_goal].q.theta
                 bc_value_end = self.control_points[index_end_goal].q.theta
 
@@ -223,12 +223,14 @@ class Pdm4arAgent(Agent):
             # for i in range(len(best_path)):
             #     best_path_unified += best_path[i]
 
-            path = self.myplanner.get_all_possible_paths(best_path)
+            path = self.myplanner.merge_adjacent_splines(best_path)
+            path = self.myplanner.get_path_from_waypoints(path)
+            self.myplanner.plot_path_and_cars(all_splines, path, vx)
 
             # path, vx = self.myplanner.get_best_path(all_splines)
             # self.myplanner.predict_other_cars_positions(path)
             # self.myplanner.plot_all_discretized_splines(all_splines, path.center_vertices)
-            self.mycontroller = PurePursuitController(path[0])
+            self.mycontroller = PurePursuitController(path)
             self.mycontroller.update_speed_reference(best_vx)
             print("UPDATED SPEED REF TO", vx)
         self.cycle_counter += 1

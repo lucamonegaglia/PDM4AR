@@ -254,6 +254,12 @@ class Planner:
                     heapq.heappush(Q, (new_cost_to_reach, dest_point))
         return path_to_goal, cost_path_to_goal
 
+    def merge_adjacent_splines(self, splines):
+        l = []
+        for s in splines:
+            l += s[:-1]
+        return l
+
     def plot_all_discretized_splines(
         self,
         all_discretized_splines: List[List[Tuple[float, float]]],
