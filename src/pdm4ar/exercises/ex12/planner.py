@@ -45,6 +45,10 @@ class Planner:
         self.center_lines = self.compute_center_lines_coefficients()
         self.sg = sg
         self.goal_lanelet_id = goal_lanelet_id
+        self.sampling_on_goal_lane = False
+
+    def set_sampling_on_goal_lane(self):
+        self.sampling_on_goal_lane = True
 
     def update_sim_obs(self, sim_obs: SimObservations):
         self.sim_obs = sim_obs
@@ -172,12 +176,19 @@ class Planner:
         return all_discretized_splines
 
     def plot_all_discretized_splines(
-        self, all_discretized_splines: List[List[Tuple[float, float]]], filename: str = "all_discretized_splines.png"
+        self,
+        all_discretized_splines: List[List[Tuple[float, float]]],
+        highlight_spline: List[Tuple[float, float]] = None,
+        filename: str = "all_discretized_splines.png",
     ):
         plt.figure(figsize=(10, 6))
         for spline_points in all_discretized_splines:
             spline_x, spline_y = zip(*spline_points)
             plt.plot(spline_x, spline_y, label="Discretized Spline")
+
+        if len(highlight_spline) > 0:
+            spline_x, spline_y = zip(*highlight_spline)
+            plt.plot(spline_x, spline_y, label="Highlighted Spline", linewidth=2.5, color="red")
 
         plt.title("All Discretized Splines")
         plt.xlabel("X Coordinate")
@@ -286,7 +297,11 @@ class Planner:
                 []
             ]:  # Why isn't the point in the lanelet?
                 continue
-            a, b, c = self.center_lines[self.goal_lanelet_id]
+            if self.sampling_on_goal_lane:
+                lane_id = self.goal_lanelet_id
+            else:
+                lane_id = self.lanelet_network.find_lanelet_by_position([spline[i]])[0][0]
+            a, b, c = self.center_lines[lane_id]
             distance = self.distance_point_to_line_2d(a, b, c, spline[i][0], spline[i][1])
             objective_value += (
                 distance  # not super correct, should be an integral (as long as we don't compute intergrals is okay??)

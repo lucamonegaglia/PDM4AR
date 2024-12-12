@@ -149,6 +149,7 @@ class Pdm4arAgent(Agent):
                     sampled_points_goal_lane, bc_value_init, bc_value_end
                 )
                 all_splines = all_splines_goal_lane + all_splines_player_lane
+                self.myplanner.set_sampling_on_goal_lane()
             else:
                 all_splines_goal_lane = []
                 all_splines = all_splines_player_lane
@@ -160,10 +161,8 @@ class Pdm4arAgent(Agent):
             # print(sampled_points_player_lane[0][1][0], sampled_points_player_lane[0][1][1])
             # print(sampled_points_player_lane[0][2][0], sampled_points_player_lane[0][2][1])
 
-            self.myplanner.plot_all_discretized_splines(all_splines)
-
             path, vx = self.myplanner.get_best_path(all_splines)
-            self.myplanner.plot_all_discretized_splines([path.center_vertices])
+            self.myplanner.plot_all_discretized_splines(all_splines, path.center_vertices)
             self.mycontroller = PurePursuitController(path)
             self.mycontroller.update_speed_reference(vx)
             print("UPDATED SPEED REF TO", vx)
