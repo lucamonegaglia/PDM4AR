@@ -1,6 +1,7 @@
 from mimetypes import init
 import random
 from dataclasses import dataclass
+import time
 from typing import Sequence, List, Tuple
 from venv import create
 
@@ -50,6 +51,18 @@ class Planner:
     def set_sampling_on_goal_lane(self):
         self.sampling_on_goal_lane = True
 
+    def where_is_goal(self):
+        a_g, b_g, c_g = self.center_lines[self.goal_lanelet_id]
+        print("Goal line: ", a_g, b_g, c_g)
+        a_e, b_e, c_e = self.center_lines[self.current_ego_lanelet_id]
+        print("Ego line: ", a_e, b_e, c_e)
+        if c_g > c_e:
+            print("left")
+        elif c_g == c_e:
+            print("straight")
+        else:
+            print("right")
+
     def update_sim_obs(self, sim_obs: SimObservations):
         self.sim_obs = sim_obs
         self.ego_position = np.array([sim_obs.players["Ego"].state.x, sim_obs.players["Ego"].state.y])
@@ -71,17 +84,22 @@ class Planner:
         center_vertices = lanelet.center_vertices
 
         # Ensure self.ego_position is between the center_vertices
-        if np.linalg.norm(center_vertices[0] - self.ego_position) + self.sim_obs.players["Ego"].state.vx < np.max(
+        if np.linalg.norm(center_vertices[0] - self.ego_position) + self.sim_obs.players["Ego"].state.vx > np.max(
             lanelet.distance
         ):
-            s_start = np.linalg.norm(center_vertices[0] - self.ego_position) + self.sim_obs.players["Ego"].state.vx
+            s_start = (
+                np.linalg.norm(center_vertices[0] - self.ego_position)
+                + (np.max(lanelet.distance) - np.linalg.norm(center_vertices[0] - self.ego_position) - 1) / 3
+            )
+            print("S_start: ", s_start)
         else:
-            s_start = 0
+            s_start = np.linalg.norm(center_vertices[0] - self.ego_position) + self.sim_obs.players["Ego"].state.vx
 
         if s_start + self.sim_obs.players["Ego"].state.vx * 5 < np.max(lanelet.distance):
             s_end = s_start + self.sim_obs.players["Ego"].state.vx * 5
         else:
             s_end = np.max(lanelet.distance)
+            print("S_end: ", s_end)
         # print("Centers", lanelet.center_vertices)
 
         # Sample evenly spaced points starting from s_start
@@ -273,8 +291,10 @@ class Planner:
             if keys != "Ego":
                 lane_id = self.lanelet_network.find_lanelet_by_position(
                     [np.array([self.sim_obs.players[keys].state.x, self.sim_obs.players[keys].state.y])]
-                )[0][0]
-
+                )[0]
+                if not lane_id:
+                    continue
+                lane_id = lane_id[0]
                 if lane_id == self.current_ego_lanelet_id:
                     r_to_car = (
                         np.array([self.sim_obs.players[keys].state.x, self.sim_obs.players[keys].state.y])
@@ -296,8 +316,12 @@ class Planner:
 
     def objective_function(self, spline: List[Tuple[float, float]], vx) -> float:
         objective_value = 0.0
+        # t_predict = time.time()
         self.predict_other_cars_positions(spline, vx)
+        # print("Predict time: ", time.time() - t_predict)
+        # t_collision = time.time()
         collisions = self.detect_collisions()
+        # print("Collision time: ", time.time() - t_collision)
         if any(collisions[timestep] for timestep in collisions):
             objective_value += 1000000
         for i in range(len(spline)):

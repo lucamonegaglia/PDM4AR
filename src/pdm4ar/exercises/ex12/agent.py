@@ -17,6 +17,11 @@ from pdm4ar.exercises.ex12.planner import Planner
 from pdm4ar.exercises.ex12.controller import PurePursuitController
 from pdm4ar.exercises_def.ex09 import goal
 from shapely.geometry import Point
+import time
+
+import cProfile
+import pstats
+import io
 
 
 @dataclass(frozen=True)
@@ -78,7 +83,11 @@ class Pdm4arAgent(Agent):
         # print(sim_obs.players["Ego"].state.x, sim_obs.players["Ego"].state.y)
 
         # print("Current ego lanelet: ", current_ego_lanelet_id)
-        if self.flag and self.cycle_counter % 10 == 0:
+        if self.flag and self.cycle_counter % 3 == 0:
+            # self.flag = False
+            # profiler = cProfile.Profile()
+            # profiler.enable()  # Avvia il profiler
+            # t = time.time()
             ego_position = np.array([sim_obs.players["Ego"].state.x, sim_obs.players["Ego"].state.y])
             # print("Position: ", ego_position)
             print("vx: ", sim_obs.players["Ego"].state.vx)
@@ -99,9 +108,9 @@ class Pdm4arAgent(Agent):
 
             signed_dist_to_goal_lane = np.dot(r_to_goal_lanelet, direction_player_lanelet)
             dist_to_goal = self.goal.goal_polygon.distance(Point(ego_position))
-            if dist_to_goal < sim_obs.players["Ego"].state.vx * 5:
-                print("Close to goal, sampling stopped")
-                return self.mycontroller.compute_control(sim_obs.players["Ego"].state, float(sim_obs.time))
+            # if dist_to_goal < sim_obs.players["Ego"].state.vx * 5:
+            #     print("Close to goal, sampling stopped")
+            #     return self.mycontroller.compute_control(sim_obs.players["Ego"].state, float(sim_obs.time))
 
             # print("Ego Lanelet Points", ego_lanelet.center_vertices)
             # print("Goal Lanelet Points", goal_lanelet.center_vertices)
@@ -153,7 +162,7 @@ class Pdm4arAgent(Agent):
             else:
                 all_splines_goal_lane = []
                 all_splines = all_splines_player_lane
-
+            self.myplanner.where_is_goal()
             # all_splines = all_splines_player_lane + all_splines_goal_lane
 
             # print("Number of sampled points: ", len(sampled_points_player_lane[0]) * len(sampled_points_player_lane))
@@ -162,10 +171,19 @@ class Pdm4arAgent(Agent):
             # print(sampled_points_player_lane[0][2][0], sampled_points_player_lane[0][2][1])
 
             path, vx = self.myplanner.get_best_path(all_splines)
-            self.myplanner.plot_all_discretized_splines(all_splines, path.center_vertices)
+            # self.myplanner.plot_all_discretized_splines(all_splines, path.center_vertices)
             self.mycontroller = PurePursuitController(path)
             self.mycontroller.update_speed_reference(vx)
-            print("UPDATED SPEED REF TO", vx)
+            # profiler.disable()  # Ferma il profiler
+
+            # Stampa i risultati in modo leggibile
+            # stream = io.StringIO()
+            # stats = pstats.Stats(profiler, stream=stream)
+            # stats.sort_stats("cumulative")  # Ordina per tempo cumulativo
+            # stats.print_stats()  # Stampa statistiche
+            # print(stream.getvalue())
+            # t = time.time() - t
+            # print("Time to compute path: ", t)
         self.cycle_counter += 1
 
         # rnd_acc = random.random() * self.params.param1
