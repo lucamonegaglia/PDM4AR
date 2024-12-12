@@ -116,7 +116,7 @@ class Planner:
             new_points = (center_point, middle_right_point, middle_left_point)
             for p in new_points:
                 # check that p is an array of lenght 2
-                if isinstance(p, (list, np.ndarray)) and len(p) == 2:
+                if len(p) == 2:
                     dict_points_layer[(p[0], p[1])] = i + 1  # 1-based index because the first point is the ego position
             if i == 0:
                 index_init = points[3]
@@ -205,10 +205,12 @@ class Planner:
         dict_points_layer: dict,
         start_point: Sequence[np.ndarray],
         goal_point: Sequence[np.ndarray],
+        vx,
     ):
         # TODO implement graph search for the best path using UCB
         Q = []
         path_to_goal = []
+        cost_path_to_goal = 0
         parent_map = {}
         heapq.heappush(Q, (0, start_point))
         cost_map = {(start_point[0], start_point[1]): 0}
@@ -223,9 +225,11 @@ class Planner:
                 # append to path_to_goal the spline between current and current's parent
                 parent = parent_map[(current[0], current[1])]
                 path_to_goal.append(all_discretized_splines_dict[(parent[0], parent[1], current[0], current[1])])
+                cost_path_to_goal += cost
                 while (current != start_point).all():
                     parent = parent_map[(current[0], current[1])]
                     path_to_goal.insert(0, all_discretized_splines_dict[(parent[0], parent[1], current[0], current[1])])
+                    cost_path_to_goal += cost_map[(current[0], current[1])]
                     current = parent
                 if (path_to_goal[0][0] != start_point).all():
                     path_to_goal.insert(0, all_discretized_splines_dict[(start_point, path_to_goal[0][0])])
@@ -237,7 +241,7 @@ class Planner:
             for i in range(len(set_of_neighbors)):
                 dest_point = sampled_points_list[dict_points_layer[(current[0], current[1])]][i]
                 new_cost_to_reach = cost + self.objective_function(
-                    all_discretized_splines_dict[(current[0], current[1], dest_point[0], dest_point[1])]
+                    all_discretized_splines_dict[(current[0], current[1], dest_point[0], dest_point[1])], vx
                 )
                 # p = sampled_points_list[dict_points_layer[(current[0], current[1])] + 1][i]
                 cost_to_reach_neighbor = cost_map.get(
@@ -247,7 +251,7 @@ class Planner:
                     cost_map[(dest_point[0], dest_point[1])] = new_cost_to_reach
                     parent_map[(dest_point[0], dest_point[1])] = current
                     heapq.heappush(Q, (new_cost_to_reach, dest_point))
-        return path_to_goal
+        return path_to_goal, cost_path_to_goal
 
     def plot_all_discretized_splines(
         self,
@@ -256,7 +260,6 @@ class Planner:
         filename: str = "all_discretized_splines.png",
     ):
         plt.figure(figsize=(10, 6))
-        a, b, c = self.center_lines[lane_id]
         for spline_points in all_discretized_splines:
             spline_x, spline_y = zip(*spline_points)
             if spline_points in best_spline:
@@ -266,9 +269,9 @@ class Planner:
             else:
                 plt.plot(spline_x, spline_y, label="Discretized Spline")
 
-        if len(highlight_spline) > 0:
-            spline_x, spline_y = zip(*highlight_spline)
-            plt.plot(spline_x, spline_y, label="Highlighted Spline", linewidth=2.5, color="red")
+        # if len(highlight_spline) > 0:
+        #     spline_x, spline_y = zip(*highlight_spline)
+        #     plt.plot(spline_x, spline_y, label="Highlighted Spline", linewidth=2.5, color="red")
 
         plt.title("All Discretized Splines")
         plt.xlabel("X Coordinate")
@@ -491,7 +494,9 @@ class Planner:
         self.cars = {}
         self.cars["Ego"] = []
         for i in range(len(spline) - 1):
-            distance = np.linalg.norm(spline[i] - spline[i + 1])
+            distance = np.linalg.norm(
+                np.array([spline[i][0], spline[i][1]]) - np.array([spline[i + 1][0], spline[i + 1][1]])
+            )
             timesteps.append(distance / ego_vx)
             a = spline[i + 1][1] - spline[i][1]
             b = spline[i][0] - spline[i + 1][0]

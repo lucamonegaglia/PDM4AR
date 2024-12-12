@@ -184,13 +184,32 @@ class Pdm4arAgent(Agent):
                 all_splines_goal_lane = []
                 all_splines = all_splines_player_lane
 
-            best_spline = self.myplanner.graph_search(
+            # access vx of ego
+            vx = sim_obs.players["Ego"].state.vx
+            best_vx = vx
+            best_path1, cost1 = self.myplanner.graph_search(
                 all_splines_dict,
                 sample_points,
                 dict_points_layer,
                 start_position,
                 end_position,
+                vx,
             )
+            vx2 = self.myplanner.find_vx()
+            best_path2, cost2 = self.myplanner.graph_search(
+                all_splines_dict,
+                sample_points,
+                dict_points_layer,
+                start_position,
+                end_position,
+                vx2,
+            )
+            if cost1 < cost2:
+                best_path = best_path1
+                best_vx = vx
+            else:
+                best_path = best_path2
+                best_vx = vx2
             # all_splines = all_splines_player_lane + all_splines_goal_lane
 
             # print("Number of sampled points: ", len(sampled_points_player_lane[0]) * len(sampled_points_player_lane))
@@ -198,13 +217,19 @@ class Pdm4arAgent(Agent):
             # print(sampled_points_player_lane[0][1][0], sampled_points_player_lane[0][1][1])
             # print(sampled_points_player_lane[0][2][0], sampled_points_player_lane[0][2][1])
 
-            self.myplanner.plot_all_discretized_splines(all_splines, best_spline)
+            self.myplanner.plot_all_discretized_splines(all_splines, best_path)
 
-            path, vx = self.myplanner.get_best_path(all_splines)
+            # best_path_unified = []
+            # for i in range(len(best_path)):
+            #     best_path_unified += best_path[i]
+
+            path = self.myplanner.get_all_possible_paths(best_path)
+
+            # path, vx = self.myplanner.get_best_path(all_splines)
             # self.myplanner.predict_other_cars_positions(path)
             # self.myplanner.plot_all_discretized_splines(all_splines, path.center_vertices)
-            self.mycontroller = PurePursuitController(path)
-            self.mycontroller.update_speed_reference(vx)
+            self.mycontroller = PurePursuitController(path[0])
+            self.mycontroller.update_speed_reference(best_vx)
             print("UPDATED SPEED REF TO", vx)
         self.cycle_counter += 1
 
