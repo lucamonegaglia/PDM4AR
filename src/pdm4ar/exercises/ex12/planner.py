@@ -2,6 +2,7 @@ import heapq
 from mimetypes import init
 import random
 from dataclasses import dataclass
+from turtle import st
 from typing import Sequence, List, Tuple
 from venv import create
 
@@ -97,7 +98,7 @@ class Planner:
             for p in points:
                 # check that p is an array of lenght 2
                 if isinstance(p, (list, np.ndarray)) and len(p) == 2:
-                    dict_points_layer[(p[0], p[1])] = i
+                    dict_points_layer[(p[0], p[1])] = i + 1  # 1-based index because the first point is the ego position
             if i == 0:
                 index_init = points[3]
             if i == num_points - 1:
@@ -184,58 +185,68 @@ class Planner:
         all_discretized_splines_dict: dict,
         sampled_points_list: Sequence[Sequence[np.ndarray]],
         dict_points_layer: dict,
-        goal_point: Sequence[np.ndarray],
         start_point: Sequence[np.ndarray],
+        goal_point: Sequence[np.ndarray],
     ):
         # TODO implement graph search for the best path using UCB
         Q = []
         path_to_goal = []
         parent_map = {}
         heapq.heappush(Q, (0, start_point))
-        cost_map = {start_point: 0}
+        cost_map = {(start_point[0], start_point[1]): 0}
         num_layers = len(sampled_points_list)
+        # add to dict points layer the start
+        dict_points_layer[(start_point[0], start_point[1])] = 0
         while Q:
             cost, current = heapq.heappop(Q)
-            if cost > cost_map[current]:
+            if cost > cost_map[(current[0], current[1])]:
                 continue
-            if current == goal_point:
+            if (current == goal_point).all():
                 # append to path_to_goal the spline between current and current's parent
-                path_to_goal.append(all_discretized_splines_dict[(parent_map[current], current)])
-                while current != start_point:
-                    path_to_goal.insert(0, all_discretized_splines_dict[(parent_map[current], current)])
-                    current = parent_map[current]
-                if path_to_goal[0][0] != start_point:
+                parent = parent_map[(current[0], current[1])]
+                path_to_goal.append(all_discretized_splines_dict[(parent[0], parent[1], current[0], current[1])])
+                while (current != start_point).all():
+                    parent = parent_map[(current[0], current[1])]
+                    path_to_goal.insert(0, all_discretized_splines_dict[(parent[0], parent[1], current[0], current[1])])
+                    current = parent
+                if (path_to_goal[0][0] != start_point).all():
                     path_to_goal.insert(0, all_discretized_splines_dict[(start_point, path_to_goal[0][0])])
                 break
-            if dict_points_layer[(current[0], current[1])] == num_layers - 1:
+            if dict_points_layer[(current[0], current[1])] == num_layers and (current != start_point).all():
                 # don't have other neighbors
                 continue
-            for i in range(len(sampled_points_list[dict_points_layer[(current[0], current[1])] + 1])):
+            set_of_neighbors = sampled_points_list[dict_points_layer[(current[0], current[1])]]
+            for i in range(len(set_of_neighbors)):
+                dest_point = sampled_points_list[dict_points_layer[(current[0], current[1])]][i]
                 new_cost_to_reach = cost + self.objective_function(
-                    all_discretized_splines_dict[(current, sampled_points_list[dict_points_layer[current] + 1][i])]
+                    all_discretized_splines_dict[(current[0], current[1], dest_point[0], dest_point[1])]
                 )
+                # p = sampled_points_list[dict_points_layer[(current[0], current[1])] + 1][i]
                 cost_to_reach_neighbor = cost_map.get(
-                    sampled_points_list[dict_points_layer[current] + 1][i], float("inf")
+                    (dest_point[0], dest_point[1]), float("inf")
                 )  # if not in the map, return inf
                 if new_cost_to_reach < cost_to_reach_neighbor:
-                    cost_map[sampled_points_list[dict_points_layer[current] + 1][i]] = new_cost_to_reach
-                    parent_map[sampled_points_list[dict_points_layer[current] + 1][i]] = current
-                    heapq.heappush(Q, (new_cost_to_reach, sampled_points_list[dict_points_layer[current] + 1][i]))
+                    cost_map[(dest_point[0], dest_point[1])] = new_cost_to_reach
+                    parent_map[(dest_point[0], dest_point[1])] = current
+                    heapq.heappush(Q, (new_cost_to_reach, dest_point))
         return path_to_goal
 
     def plot_all_discretized_splines(
         self,
         all_discretized_splines: List[List[Tuple[float, float]]],
+        best_spline: List[List[Tuple[float, float]]],
         filename: str = "all_discretized_splines.png",
-        best_spline: List[Tuple[float, float]] = None,
     ):
         plt.figure(figsize=(10, 6))
+        a, b, c = self.center_lines[lane_id]
         for spline_points in all_discretized_splines:
             spline_x, spline_y = zip(*spline_points)
-            if spline_points == best_spline:
+            if spline_points in best_spline:
+                print("Ho trovato un pezzo della best spline")
                 # plot the best spline with a bigger line
-                plt.plot(spline_x, spline_y, label="Best Spline", linewidth=4)
-            plt.plot(spline_x, spline_y, label="Discretized Spline")
+                plt.plot(spline_x, spline_y, linewidth=4)
+            else:
+                plt.plot(spline_x, spline_y, label="Discretized Spline")
 
         plt.title("All Discretized Splines")
         plt.xlabel("X Coordinate")

@@ -116,8 +116,8 @@ class Pdm4arAgent(Agent):
 
             self.myplanner.update_sim_obs(sim_obs)
 
-            sampled_points_player_lane, index_init_player, index_end_player = self.myplanner.sample_points_on_lane(
-                lane_id=current_ego_lanelet_id, num_points=3
+            sampled_points_player_lane, index_init_player, index_end_player, dict_points_layer_player = (
+                self.myplanner.sample_points_on_lane(lane_id=current_ego_lanelet_id, num_points=4)
             )
             print("Sampled points player lane: ", sampled_points_player_lane)
 
@@ -135,51 +135,60 @@ class Pdm4arAgent(Agent):
                 sampled_points_player_lane, bc_value_init, bc_value_end
             )
 
-            # start position of the ego vehicle
-            start_position = np.array([sim_obs.players["Ego"].state.x, sim_obs.players["Ego"].state.y])
-            # end position at random from one of the last layer sample points
-            end_position = np.array([sampled_points_player_lane[-1][1][0], sampled_points_player_lane[-1][1][1]])
-            # do graph search for best path
-            best_spline = self.myplanner.graph_search(
-                all_splines_player_lane_dict,
-                sampled_points_player_lane,
-                dict_points_layer,
-                start_position,
-                end_position,
-            )
+            all_splines_dict = {}
+            all_splines_dict.update(all_splines_player_lane_dict)
+            sample_points = sampled_points_player_lane
+            dict_points_layer = {}
+            dict_points_layer.update(dict_points_layer_player)
 
             # start position of the ego vehicle
             start_position = np.array([sim_obs.players["Ego"].state.x, sim_obs.players["Ego"].state.y])
-            # end position at random from one of the last layer sample points
-            end_position = np.array([sampled_points_player_lane[-1][1][0], sampled_points_player_lane[-1][1][1]])
-            # do graph search for best path
-            best_spline = self.myplanner.graph_search(
-                all_splines_player_lane_dict,
-                sampled_points_player_lane,
-                dict_points_layer,
-                start_position,
-                end_position,
+            # end position at the center of the lane after the last layer of sampled points
+            end_position = np.array(
+                [
+                    sampled_points_player_lane[-1][0][0],
+                    sampled_points_player_lane[-1][0][1],
+                ]
             )
+            # do graph search for best path
 
             if (
                 current_ego_lanelet_id != self.goal_lanelet_id
                 and signed_dist_to_goal_lane <= sim_obs.players["Ego"].state.vx
             ):
-                sampled_points_goal_lane, index_init_goal, index_end_goal = self.myplanner.sample_points_on_lane(
-                    lane_id=self.goal_lanelet_id, num_points=3
+                sampled_points_goal_lane, index_init_goal, index_end_goal, dict_points_layer_goal = (
+                    self.myplanner.sample_points_on_lane(lane_id=self.goal_lanelet_id, num_points=4)
+                )
+                dict_points_layer.update(dict_points_layer_goal)
+                for i in range(len(sample_points)):
+                    sample_points[i] = sample_points[i] + sampled_points_goal_lane[i]
+                # update end_position
+                end_position = np.array(
+                    [
+                        sampled_points_goal_lane[-1][0][0],
+                        sampled_points_goal_lane[-1][0][1],
+                    ]
                 )
                 print("Sampled points goal lane: ", sampled_points_goal_lane)
                 bc_value_init = self.control_points[index_init_goal].q.theta
                 bc_value_end = self.control_points[index_end_goal].q.theta
 
-                all_splines_goal_lane = self.myplanner.get_all_discretized_splines(
-                    sampled_points_goal_lane, bc_value_init, bc_value_end
+                all_splines_goal_lane, all_splines_goal_lane_dict = self.myplanner.get_all_discretized_splines(
+                    sample_points, bc_value_init, bc_value_end
                 )
+                all_splines_dict.update(all_splines_goal_lane_dict)
                 all_splines = all_splines_goal_lane
             else:
                 all_splines_goal_lane = []
                 all_splines = all_splines_player_lane
 
+            best_spline = self.myplanner.graph_search(
+                all_splines_dict,
+                sample_points,
+                dict_points_layer,
+                start_position,
+                end_position,
+            )
             # all_splines = all_splines_player_lane + all_splines_goal_lane
 
             # print("Number of sampled points: ", len(sampled_points_player_lane[0]) * len(sampled_points_player_lane))
@@ -191,7 +200,7 @@ class Pdm4arAgent(Agent):
 
             path = self.myplanner.get_best_path(all_splines)
             self.myplanner.predict_other_cars_positions(path)
-            self.myplanner.plot_all_discretized_splines([path.center_vertices])
+            # self.myplanner.plot_all_discretized_splines([path.center_vertices])
             self.mycontroller = PurePursuitController(path)
         self.cycle_counter += 1
 
