@@ -1,3 +1,4 @@
+import heapq
 from mimetypes import init
 import random
 from dataclasses import dataclass
@@ -46,6 +47,7 @@ class Planner:
         self.center_lines = self.compute_center_lines_coefficients()
         self.sg = sg
         self.goal_lanelet_id = goal_lanelet_id
+        self.cars = {}
         self.sampling_on_goal_lane = False
 
     def set_sampling_on_goal_lane(self):
@@ -113,6 +115,7 @@ class Planner:
         # s = np.linspace(s_start, lanelet.distance[-1], num_points)
 
         sampled_points = []
+        dict_points_layer = {}
         for i in range(num_points):
             points = lanelet.interpolate_position(
                 s[i]
@@ -129,13 +132,17 @@ class Planner:
 
             # The new points: center, middle-right, and middle-left
             new_points = (center_point, middle_right_point, middle_left_point)
+            for p in new_points:
+                # check that p is an array of lenght 2
+                if len(p) == 2:
+                    dict_points_layer[(p[0], p[1])] = i + 1  # 1-based index because the first point is the ego position
             if i == 0:
                 index_init = points[3]
             if i == num_points - 1:
                 index_end = points[3]
             sampled_points.append(new_points)
 
-        return sampled_points, index_init, index_end
+        return sampled_points, index_init, index_end, dict_points_layer
 
     def get_discretized_spline(
         self, sampled_points: Sequence[np.ndarray], bc_value_init, bc_value_end
@@ -180,11 +187,12 @@ class Planner:
 
     def get_all_discretized_splines(
         self, sampled_points_list: Sequence[Sequence[np.ndarray]], bc_value_init, bc_value_end
-    ) -> List[List[Tuple[float, float]]]:
+    ):
         """
         Generates discretized splines for all combinations of sampled points.
         """
         all_discretized_splines = []
+        all_discretized_splines_dict = {}  # same structure but with the point combination as key
 
         # Generate Cartesian product of all combinations of center, left, and right points
         # point_combinations = product(*sampled_points_list)  # Cartesian product
@@ -201,24 +209,93 @@ class Planner:
         for combination in point_combinations:
             spline_points = self.get_discretized_spline(combination, bc_value_init, bc_value_end)
             all_discretized_splines.append(spline_points)
+            all_discretized_splines_dict[
+                (combination[0][0], combination[0][1], combination[1][0], combination[1][1])
+            ] = spline_points
             i += 1
         # print("Number of splines: ", i)
-        return all_discretized_splines
+        return all_discretized_splines, all_discretized_splines_dict
+
+    def graph_search(
+        self,
+        all_discretized_splines_dict: dict,
+        sampled_points_list: Sequence[Sequence[np.ndarray]],
+        dict_points_layer: dict,
+        start_point: Sequence[np.ndarray],
+        goal_point: Sequence[np.ndarray],
+        vx,
+    ):
+        # TODO implement graph search for the best path using UCB
+        Q = []
+        path_to_goal = []
+        cost_path_to_goal = 0
+        parent_map = {}
+        heapq.heappush(Q, (0, start_point))
+        cost_map = {(start_point[0], start_point[1]): 0}
+        num_layers = len(sampled_points_list)
+        # add to dict points layer the start
+        dict_points_layer[(start_point[0], start_point[1])] = 0
+        while Q:
+            cost, current = heapq.heappop(Q)
+            if cost > cost_map[(current[0], current[1])]:
+                continue
+            if (current == goal_point).all():
+                # append to path_to_goal the spline between current and current's parent
+                parent = parent_map[(current[0], current[1])]
+                path_to_goal.append(all_discretized_splines_dict[(parent[0], parent[1], current[0], current[1])])
+                cost_path_to_goal += cost
+                while (current != start_point).all():
+                    parent = parent_map[(current[0], current[1])]
+                    path_to_goal.insert(0, all_discretized_splines_dict[(parent[0], parent[1], current[0], current[1])])
+                    cost_path_to_goal += cost_map[(current[0], current[1])]
+                    current = parent
+                if (path_to_goal[0][0] != start_point).all():
+                    path_to_goal.insert(0, all_discretized_splines_dict[(start_point, path_to_goal[0][0])])
+                break
+            if dict_points_layer[(current[0], current[1])] == num_layers and (current != start_point).all():
+                # don't have other neighbors
+                continue
+            set_of_neighbors = sampled_points_list[dict_points_layer[(current[0], current[1])]]
+            for i in range(len(set_of_neighbors)):
+                dest_point = sampled_points_list[dict_points_layer[(current[0], current[1])]][i]
+                new_cost_to_reach = cost + self.objective_function(
+                    all_discretized_splines_dict[(current[0], current[1], dest_point[0], dest_point[1])], vx
+                )
+                # p = sampled_points_list[dict_points_layer[(current[0], current[1])] + 1][i]
+                cost_to_reach_neighbor = cost_map.get(
+                    (dest_point[0], dest_point[1]), float("inf")
+                )  # if not in the map, return inf
+                if new_cost_to_reach < cost_to_reach_neighbor:
+                    cost_map[(dest_point[0], dest_point[1])] = new_cost_to_reach
+                    parent_map[(dest_point[0], dest_point[1])] = current
+                    heapq.heappush(Q, (new_cost_to_reach, dest_point))
+        return path_to_goal, cost_path_to_goal
+
+    def merge_adjacent_splines(self, splines):
+        l = []
+        for s in splines:
+            l += s[:-1]
+        return l
 
     def plot_all_discretized_splines(
         self,
         all_discretized_splines: List[List[Tuple[float, float]]],
-        highlight_spline: List[Tuple[float, float]] = None,
+        best_spline: List[List[Tuple[float, float]]],
         filename: str = "all_discretized_splines.png",
     ):
         plt.figure(figsize=(10, 6))
         for spline_points in all_discretized_splines:
             spline_x, spline_y = zip(*spline_points)
-            plt.plot(spline_x, spline_y, label="Discretized Spline")
+            if spline_points in best_spline:
+                print("Ho trovato un pezzo della best spline")
+                # plot the best spline with a bigger line
+                plt.plot(spline_x, spline_y, linewidth=4)
+            else:
+                plt.plot(spline_x, spline_y, label="Discretized Spline")
 
-        if len(highlight_spline) > 0:
-            spline_x, spline_y = zip(*highlight_spline)
-            plt.plot(spline_x, spline_y, label="Highlighted Spline", linewidth=2.5, color="red")
+        # if len(highlight_spline) > 0:
+        #     spline_x, spline_y = zip(*highlight_spline)
+        #     plt.plot(spline_x, spline_y, label="Highlighted Spline", linewidth=2.5, color="red")
 
         plt.title("All Discretized Splines")
         plt.xlabel("X Coordinate")
@@ -282,7 +359,50 @@ class Planner:
         # return random path
         if min_objective_value > 10000:
             print("Ho preso il muro fratelli!")
+
+        self.plot_path_and_cars(all_discretized_splines, best_path, vx)
         return best_path, vx
+
+    def plot_path_and_cars(
+        self, all_discretized_splines: List[List[Tuple[float, float]]], best_path: Lanelet, vx: float
+    ):
+        plt.figure(figsize=(10, 6))
+
+        # Plot all discretized splines
+        for spline_points in all_discretized_splines:
+            spline_x, spline_y = zip(*spline_points)
+            plt.plot(spline_x, spline_y, label="Discretized Spline", color="gray", alpha=0.5)
+
+        best_path_x, best_path_y = zip(*best_path.center_vertices)
+        plt.plot(best_path_x, best_path_y, label="Best Path", color="blue", linewidth=2)
+        # self.predict_ego_positions(best_path.center_vertices, vx)
+        self.predict_other_cars_positions(best_path.center_vertices, vx)
+        # Plot the predicted positions of the cars
+        min_dist = float("inf")
+        for key, polygons in self.cars.items():
+            for i, poly in enumerate(polygons):
+                if (
+                    np.linalg.norm(np.array(poly.centroid.coords[0]) - np.array(self.cars["Ego"][i].centroid.coords[0]))
+                    < min_dist
+                    and key != "Ego"
+                ):
+                    min_dist = np.linalg.norm(
+                        np.array(poly.centroid.coords[0]) - np.array(self.cars["Ego"][i].centroid.coords[0])
+                    )
+                    closest_timestep = i
+
+        # Plot the polygons for the closest timestep
+        for key, polygons in self.cars.items():
+            poly = polygons[closest_timestep]
+            x, y = poly.exterior.xy
+            plt.plot(x, y, label=f"{key} Predicted Position", linewidth=1.5)
+            plt.fill(x, y, alpha=0.4)
+
+        plt.title("Best Path, and Predicted Car Positions at closest timestep")
+        plt.xlabel("X Coordinate")
+        plt.ylabel("Y Coordinate")
+        plt.savefig("all_splines_best_path_and_cars.png")
+        plt.close()
 
     def find_vx(self):
         min_dist = float("inf")
@@ -430,6 +550,31 @@ class Planner:
         distance = abs(a * x1 + b * y1 + c) / np.sqrt(a**2 + b**2)
         return distance
 
+    def predict_ego_positions(self, spline, vx) -> List[float]:
+        """update cars dictionary and return timesteps list"""
+        ego_vx = vx
+        timesteps = [0]
+        a = spline[1][1] - spline[0][1]
+        b = spline[0][0] - spline[1][0]
+        m = -a / b
+        theta = np.arctan(m)
+        self.cars["Ego"] = [self.create_oriented_rectangle(spline[0], theta)]
+        if ego_vx < 1e-3:
+            return timesteps
+        for i in range(1, len(spline) - 1):
+            distance = np.linalg.norm(
+                np.array([spline[i][0], spline[i][1]]) - np.array([spline[i + 1][0], spline[i + 1][1]])
+            )
+            timesteps.append(distance / ego_vx)
+
+            a = spline[i + 1][1] - spline[i][1]
+            b = spline[i][0] - spline[i + 1][0]
+            m = -a / b
+            theta = np.arctan(m)
+            self.cars["Ego"].append(self.create_oriented_rectangle(spline[i], theta))
+
+        return timesteps
+
     def predict_other_cars_positions(self, spline, vx) -> List[Polygon]:
         """
         Predict the future positions of static obstacles.
@@ -440,20 +585,7 @@ class Planner:
         Returns:
         List[StaticObstacle]: A list of static obstacles with predicted positions.
         """
-        ego_x = self.sim_obs.players["Ego"].state.x
-        ego_y = self.sim_obs.players["Ego"].state.y
-        ego_vx = vx
-        timesteps = [0]
-        self.cars = {}
-        self.cars["Ego"] = []
-        for i in range(len(spline) - 1):
-            distance = np.linalg.norm(spline[i] - spline[i + 1])
-            timesteps.append(distance / ego_vx)
-            a = spline[i + 1][1] - spline[i][1]
-            b = spline[i][0] - spline[i + 1][0]
-            m = -a / b
-            theta = np.arctan(m)
-            self.cars["Ego"].append(self.create_oriented_rectangle(spline[i], theta))
+        timesteps = self.predict_ego_positions(spline, vx)
         for car in self.sim_obs.players:
             if car != "Ego":
                 self.cars[car] = []
@@ -496,10 +628,10 @@ class Planner:
         rotation_matrix = np.array([[np.cos(theta), -np.sin(theta)], [np.sin(theta), np.cos(theta)]])
 
         # Rotate and translate the corners to global coordinates
-        global_corners = np.dot(local_corners, rotation_matrix.T) + np.array(center)
+        global_corners = rotation_matrix @ local_corners.T + np.array(center).reshape(-1, 1)
 
         # Create the Shapely polygon
-        return Polygon(global_corners)
+        return Polygon(global_corners.T)
 
     def plot_polygons(self, title_prefix="Shapely Polygons from Dictionary"):
         """
