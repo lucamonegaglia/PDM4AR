@@ -47,6 +47,7 @@ class Planner:
         self.center_lines = self.compute_center_lines_coefficients()
         self.sg = sg
         self.goal_lanelet_id = goal_lanelet_id
+        self.cars = {}
         self.sampling_on_goal_lane = False
 
     def set_sampling_on_goal_lane(self):
@@ -335,7 +336,50 @@ class Planner:
         # return random path
         if min_objective_value > 10000:
             print("Ho preso il muro fratelli!")
+
+        self.plot_path_and_cars(all_discretized_splines, best_path, vx)
         return best_path, vx
+
+    def plot_path_and_cars(
+        self, all_discretized_splines: List[List[Tuple[float, float]]], best_path: Lanelet, vx: float
+    ):
+        plt.figure(figsize=(10, 6))
+
+        # Plot all discretized splines
+        for spline_points in all_discretized_splines:
+            spline_x, spline_y = zip(*spline_points)
+            plt.plot(spline_x, spline_y, label="Discretized Spline", color="gray", alpha=0.5)
+
+        best_path_x, best_path_y = zip(*best_path.center_vertices)
+        plt.plot(best_path_x, best_path_y, label="Best Path", color="blue", linewidth=2)
+        # self.predict_ego_positions(best_path.center_vertices, vx)
+        self.predict_other_cars_positions(best_path.center_vertices, vx)
+        # Plot the predicted positions of the cars
+        min_dist = float("inf")
+        for key, polygons in self.cars.items():
+            for i, poly in enumerate(polygons):
+                if (
+                    np.linalg.norm(np.array(poly.centroid.coords[0]) - np.array(self.cars["Ego"][i].centroid.coords[0]))
+                    < min_dist
+                    and key != "Ego"
+                ):
+                    min_dist = np.linalg.norm(
+                        np.array(poly.centroid.coords[0]) - np.array(self.cars["Ego"][i].centroid.coords[0])
+                    )
+                    closest_timestep = i
+
+        # Plot the polygons for the closest timestep
+        for key, polygons in self.cars.items():
+            poly = polygons[closest_timestep]
+            x, y = poly.exterior.xy
+            plt.plot(x, y, label=f"{key} Predicted Position", linewidth=1.5)
+            plt.fill(x, y, alpha=0.4)
+
+        plt.title("Best Path, and Predicted Car Positions at closest timestep")
+        plt.xlabel("X Coordinate")
+        plt.ylabel("Y Coordinate")
+        plt.savefig("all_splines_best_path_and_cars.png")
+        plt.close()
 
     def find_vx(self):
         min_dist = float("inf")
@@ -344,7 +388,11 @@ class Planner:
             if keys != "Ego":
                 lane_id = self.lanelet_network.find_lanelet_by_position(
                     [np.array([self.sim_obs.players[keys].state.x, self.sim_obs.players[keys].state.y])]
-                )[0][0]
+                )[0]
+                if not lane_id:
+                    lane_id = -1
+                else:
+                    lane_id = lane_id[0]
 
                 if lane_id == self.current_ego_lanelet_id:
                     r_to_car = (
@@ -477,6 +525,31 @@ class Planner:
         distance = abs(a * x1 + b * y1 + c) / np.sqrt(a**2 + b**2)
         return distance
 
+    def predict_ego_positions(self, spline, vx) -> List[float]:
+        """update cars dictionary and return timesteps list"""
+        ego_vx = vx
+        timesteps = [0]
+        a = spline[1][1] - spline[0][1]
+        b = spline[0][0] - spline[1][0]
+        m = -a / b
+        theta = np.arctan(m)
+        self.cars["Ego"] = [self.create_oriented_rectangle(spline[0], theta)]
+        if ego_vx < 1e-3:
+            return timesteps
+        for i in range(1, len(spline) - 1):
+            distance = np.linalg.norm(
+                np.array([spline[i][0], spline[i][1]]) - np.array([spline[i + 1][0], spline[i + 1][1]])
+            )
+            timesteps.append(distance / ego_vx)
+
+            a = spline[i + 1][1] - spline[i][1]
+            b = spline[i][0] - spline[i + 1][0]
+            m = -a / b
+            theta = np.arctan(m)
+            self.cars["Ego"].append(self.create_oriented_rectangle(spline[i], theta))
+
+        return timesteps
+
     def predict_other_cars_positions(self, spline, vx) -> List[Polygon]:
         """
         Predict the future positions of static obstacles.
@@ -487,22 +560,7 @@ class Planner:
         Returns:
         List[StaticObstacle]: A list of static obstacles with predicted positions.
         """
-        ego_x = self.sim_obs.players["Ego"].state.x
-        ego_y = self.sim_obs.players["Ego"].state.y
-        ego_vx = vx
-        timesteps = [0]
-        self.cars = {}
-        self.cars["Ego"] = []
-        for i in range(len(spline) - 1):
-            distance = np.linalg.norm(
-                np.array([spline[i][0], spline[i][1]]) - np.array([spline[i + 1][0], spline[i + 1][1]])
-            )
-            timesteps.append(distance / ego_vx)
-            a = spline[i + 1][1] - spline[i][1]
-            b = spline[i][0] - spline[i + 1][0]
-            m = -a / b
-            theta = np.arctan(m)
-            self.cars["Ego"].append(self.create_oriented_rectangle(spline[i], theta))
+        timesteps = self.predict_ego_positions(spline, vx)
         for car in self.sim_obs.players:
             if car != "Ego":
                 self.cars[car] = []
@@ -545,10 +603,10 @@ class Planner:
         rotation_matrix = np.array([[np.cos(theta), -np.sin(theta)], [np.sin(theta), np.cos(theta)]])
 
         # Rotate and translate the corners to global coordinates
-        global_corners = np.dot(local_corners, rotation_matrix.T) + np.array(center)
+        global_corners = rotation_matrix @ local_corners.T + np.array(center).reshape(-1, 1)
 
         # Create the Shapely polygon
-        return Polygon(global_corners)
+        return Polygon(global_corners.T)
 
     def plot_polygons(self, title_prefix="Shapely Polygons from Dictionary"):
         """
