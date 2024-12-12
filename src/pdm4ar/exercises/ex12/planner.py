@@ -99,11 +99,23 @@ class Planner:
             points = lanelet.interpolate_position(
                 s[i]
             )  # The interpolated positions on the center/right/left polyline and the segment id
+            # Assuming `points` is a tuple/list containing the three points returned by interpolate_position
+            center_point = points[0]  # Center of the lane
+            right_point = points[1]  # Rightmost point of the lane
+            left_point = points[2]  # Leftmost point of the lane
+
+            # Calculate the middle points
+            middle_right_point = ((center_point[0] + right_point[0]) / 2, (center_point[1] + right_point[1]) / 2)
+
+            middle_left_point = ((center_point[0] + left_point[0]) / 2, (center_point[1] + left_point[1]) / 2)
+
+            # The new points: center, middle-right, and middle-left
+            new_points = (center_point, middle_right_point, middle_left_point)
             if i == 0:
                 index_init = points[3]
             if i == num_points - 1:
                 index_end = points[3]
-            sampled_points.append(points[0:3])
+            sampled_points.append(new_points)
 
         return sampled_points, index_init, index_end
 
@@ -293,14 +305,10 @@ class Planner:
             # TODO I'd like to do this analytically with the coefficients of the spline and evaluating the integrals but
             # an appropriate data structure would be needed
             # Guidance term
-            if self.lanelet_network.find_lanelet_by_position([spline[i]]) == [
-                []
-            ]:  # Why isn't the point in the lanelet?
-                continue
             if self.sampling_on_goal_lane:
                 lane_id = self.goal_lanelet_id
             else:
-                lane_id = self.lanelet_network.find_lanelet_by_position([spline[i]])[0][0]
+                lane_id = self.current_ego_lanelet_id
             a, b, c = self.center_lines[lane_id]
             distance = self.distance_point_to_line_2d(a, b, c, spline[i][0], spline[i][1])
             objective_value += (
@@ -453,10 +461,10 @@ class Planner:
         # Rectangle corners in local coordinates (centered at origin)
         local_corners = np.array(
             [
-                [self.sg.lf, self.sg.w_half],  # Front right
-                [self.sg.lf, -self.sg.w_half],  # Front left
-                [-self.sg.lr, -self.sg.w_half],  # Rear left
-                [-self.sg.lr, self.sg.w_half],  # Rear right
+                [1.1 * self.sg.lf, 1.1 * self.sg.w_half],  # Front right
+                [1.1 * self.sg.lf, -1.1 * self.sg.w_half],  # Front left
+                [-1.1 * self.sg.lr, -1.1 * self.sg.w_half],  # Rear left
+                [-1.1 * self.sg.lr, 1.1 * self.sg.w_half],  # Rear right
             ]
         )
 
