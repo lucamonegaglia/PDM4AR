@@ -1,9 +1,12 @@
+from calendar import c
 import heapq
 from math import isclose
 from mimetypes import init
 import random
 from dataclasses import dataclass
+from threading import local
 import time
+from turtle import left
 from typing import Sequence, List, Tuple
 from venv import create
 
@@ -18,6 +21,8 @@ from dg_commons.sim.models.vehicle_structures import VehicleGeometry
 from dg_commons.sim.models.vehicle_utils import VehicleParameters
 import matplotlib
 from matplotlib import pyplot as plt
+from matplotlib.pylab import sample
+from networkx import center
 import numpy as np
 import scipy as sp
 from scipy.interpolate import CubicSpline
@@ -49,6 +54,16 @@ class Planner:
         self.goal_lanelet_id = goal_lanelet_id
         self.cars = {}
         self.sampling_on_goal_lane = False
+        self.direction = (
+            self.lanelet_network.find_lanelet_by_id(self.goal_lanelet_id).center_vertices[-1]
+            - self.lanelet_network.find_lanelet_by_id(self.goal_lanelet_id).center_vertices[0]
+        ) / np.linalg.norm(
+            self.lanelet_network.find_lanelet_by_id(self.goal_lanelet_id).center_vertices[-1]
+            - self.lanelet_network.find_lanelet_by_id(self.goal_lanelet_id).center_vertices[0]
+        )
+        center_vertice = self.lanelet_network.find_lanelet_by_id(self.goal_lanelet_id).center_vertices[0]
+        left_vertice = self.lanelet_network.find_lanelet_by_id(self.goal_lanelet_id).left_vertices[0]
+        self.radius = np.linalg.norm(center_vertice - left_vertice)
 
     def set_sampling_on_goal_lane(self):
         self.sampling_on_goal_lane = True
@@ -93,20 +108,14 @@ class Planner:
 
         projected_distance = np.dot(distance, direction_player_lanelet)
 
-        if projected_distance + self.sim_obs.players["Ego"].state.vx > np.max(lanelet.distance):
-            s_start = projected_distance + (np.max(lanelet.distance) - projected_distance - 1) / num_points
-            # print("S_start: ", s_start)
-        else:
-            s_start = projected_distance + self.sim_obs.players["Ego"].state.vx
+        s_start = projected_distance + self.sim_obs.players["Ego"].state.vx
 
-        if s_start + self.sim_obs.players["Ego"].state.vx * 5 < np.max(lanelet.distance):
-            s_end = s_start + self.sim_obs.players["Ego"].state.vx * 5
-        else:
-            s_end = np.max(lanelet.distance)
-            # print("S_end: ", s_end)
+        s_end = s_start + self.sim_obs.players["Ego"].state.vx * 5
+
+        # print("S_end: ", s_end)
         # print("Centers", lanelet.center_vertices)
-        if s_end < s_start:
-            return [], 0, 0, {}
+        # if s_end < s_start:
+        #     return [], 0, 0, {}
         # Sample evenly spaced points starting from s_start
         s = np.linspace(
             s_start,
@@ -120,7 +129,7 @@ class Planner:
         sampled_points = []
         dict_points_layer = {}
         for i in range(num_points):
-            points = lanelet.interpolate_position(
+            points = lanelet.interpolate_position_good(
                 s[i]
             )  # The interpolated positions on the center/right/left polyline and the segment id
             # Assuming `points` is a tuple/list containing the three points returned by interpolate_position
@@ -147,9 +156,57 @@ class Planner:
 
         return sampled_points, index_init, index_end, dict_points_layer
 
-    def get_discretized_spline(
-        self, point_combination: Sequence[np.ndarray], bc_value_init, bc_value_end, R
-    ) -> List[Tuple[float, float]]:
+    def sample_points_on_lane_good(self, lane_id, num_points):
+        lanelet = self.lanelet_network.find_lanelet_by_id(lane_id)
+        if not lanelet:
+            raise ValueError(f"Lanelet with id {lane_id} not found")
+
+        # Get Ego's current position
+        self.ego_position = np.array([self.sim_obs.players["Ego"].state.x, self.sim_obs.players["Ego"].state.y])
+
+        # print("S_end: ", s_end)
+        # print("Centers", lanelet.center_vertices)
+        # if s_end < s_start:
+        #     return [], 0, 0, {}
+        # Sample evenly spaced points starting from s_start
+
+        a, b, c = self.center_lines[lane_id]
+        distance_to_line = self.distance_point_to_line_2d(a, b, c, self.ego_position[0], self.ego_position[1])
+        projected_ego_x = self.ego_position[0] - a * distance_to_line / np.sqrt(a**2 + b**2)
+        theta = np.arctan2(self.direction[1], self.direction[0])
+        x_start = projected_ego_x + self.sim_obs.players["Ego"].state.vx * np.cos(theta)
+        x_end = x_start + self.sim_obs.players["Ego"].state.vx * 5 * np.cos(theta)
+        x_lin = np.linspace(
+            x_start,
+            x_end,
+            num_points,
+        )
+        sampled_points = []
+        dict_points_layer = {}
+        perp_direction = np.array([-self.direction[1], self.direction[0]])
+        r = self.radius
+        for i, x in enumerate(x_lin):
+            center_y = -a / b * x - c / b
+            center_point = (x, center_y)
+            right_point = [x + r * perp_direction[0], center_y + r * perp_direction[1]]
+            left_point = [x - r * perp_direction[0], center_y - r * perp_direction[1]]
+
+            # Calculate the middle points
+            middle_right_point = ((center_point[0] + right_point[0]) / 2, (center_point[1] + right_point[1]) / 2)
+
+            middle_left_point = ((center_point[0] + left_point[0]) / 2, (center_point[1] + left_point[1]) / 2)
+
+            # The new points: center, middle-right, and middle-left
+            new_points = (center_point, middle_right_point, middle_left_point)
+            for p in new_points:
+                # check that p is an array of lenght 2
+                if len(p) == 2:
+                    dict_points_layer[(p[0], p[1])] = i + 1  # 1-based index because the first point is the ego position
+            sampled_points.append(new_points)
+
+        return sampled_points, dict_points_layer
+
+    def get_discretized_spline(self, point_combination: Sequence[np.ndarray], R) -> List[Tuple[float, float]]:
         """
         Generate a cubic spline for three points and discretize it.
 
@@ -171,7 +228,7 @@ class Planner:
         # reverse = False
         if not np.all(np.diff(x_coords) > 0):
             print("x_coords are not in increasing order")
-            return [], {}
+            return []
         #     reverse = True
         #     x_coords = -np.array(x_coords)
         #     bc_type = ((1, np.pi - bc_value_init), (1, np.pi - bc_value_end))
@@ -194,15 +251,13 @@ class Planner:
         # Return discretized points as a list of tuples
         return list(zip(xs, ys))
 
-    def get_all_discretized_splines(
-        self, sampled_points_list: Sequence[Sequence[np.ndarray]], bc_value_init, bc_value_end
-    ):
+    def get_all_discretized_splines(self, sampled_points_list: Sequence[Sequence[np.ndarray]]):
         """
         Generates discretized splines for all combinations of sampled points.
         """
         all_discretized_splines = []
         all_discretized_splines_dict = {}  # same structure but with the point combination as key
-
+        theta = np.arctan2(self.direction[1], self.direction[0])
         # Generate Cartesian product of all combinations of center, left, and right points
         # point_combinations = product(*sampled_points_list)  # Cartesian product
         self.ego_position = np.array([self.sim_obs.players["Ego"].state.x, self.sim_obs.players["Ego"].state.y])
@@ -217,10 +272,34 @@ class Planner:
         i = 0
         print("Number of splines: ", len(point_combinations))
         for combination in point_combinations:
-            R = np.array(
-                [[np.cos(bc_value_init), -np.sin(bc_value_init)], [np.sin(bc_value_init), np.cos(bc_value_init)]]
-            )
-            spline_points = self.get_discretized_spline(combination, bc_value_init, bc_value_end, R)
+            R = np.array([[np.cos(theta), -np.sin(theta)], [np.sin(theta), np.cos(theta)]])
+            rotated_sampled_point_1 = R.T @ combination[0]
+            rotated_sampled_point_2 = R.T @ combination[1]
+            if rotated_sampled_point_1[0] - rotated_sampled_point_2[0] > 0:
+                plt.figure(figsize=(10, 6))
+                for point in sampled_points_list:
+                    for p in point:
+                        plt.plot(p[0], p[1], "o")
+                plt.plot(self.ego_position[0], self.ego_position[1], "x", markersize=10)
+                plt.plot(
+                    self.lanelet_network.find_lanelet_by_id(self.current_ego_lanelet_id).center_vertices[-1][0],
+                    self.lanelet_network.find_lanelet_by_id(self.current_ego_lanelet_id).center_vertices[-1][1],
+                    "-",
+                    markersize=20,
+                )
+                plt.plot(
+                    self.lanelet_network.find_lanelet_by_id(self.goal_lanelet_id).center_vertices[-1][0],
+                    self.lanelet_network.find_lanelet_by_id(self.goal_lanelet_id).center_vertices[-1][1],
+                    "-",
+                    markersize=20,
+                )
+                plt.title("Sample Points and Ego Position")
+                plt.xlabel("X Coordinate")
+                plt.ylabel("Y Coordinate")
+                plt.grid(True)
+                plt.savefig("sample_points_and_ego_position.png")
+                plt.close()
+            spline_points = self.get_discretized_spline(combination, R)
             if not spline_points:
                 continue
             all_discretized_splines.append(spline_points)
@@ -465,6 +544,7 @@ class Planner:
                     signed_dist_to_car = np.dot(r_to_car, direction_player_lanelet)
                     if signed_dist_to_car < min_dist and signed_dist_to_car > 0:
                         min_dist = signed_dist_to_car
+                        # if self.sim_obs.players[keys].state.vx < vx:
                         vx = self.sim_obs.players[keys].state.vx
         return vx
 
@@ -594,7 +674,7 @@ class Planner:
         b = spline[0][0] - spline[1][0]
         m = -a / b
         theta = np.arctan(m)
-        self.cars["Ego"] = [self.create_oriented_rectangle(spline[0], theta)]
+        self.cars["Ego"] = [self.create_oriented_rectangle(spline[0], theta, "Ego")]
         if ego_vx < 1e-3:
             return timesteps
         for i in range(1, len(spline) - 1):
@@ -607,7 +687,7 @@ class Planner:
             b = spline[i][0] - spline[i + 1][0]
             m = -a / b
             theta = np.arctan(m)
-            self.cars["Ego"].append(self.create_oriented_rectangle(spline[i], theta))
+            self.cars["Ego"].append(self.create_oriented_rectangle(spline[i], theta, "Ego"))
 
         return timesteps
 
@@ -627,16 +707,31 @@ class Planner:
                 self.cars[car] = []
                 x = self.sim_obs.players[car].state.x
                 y = self.sim_obs.players[car].state.y
+                # r_to_car = (
+                #     np.array([self.sim_obs.players[car].state.x, self.sim_obs.players[car].state.y]) - self.ego_position
+                # )
+                # direction_player_lanelet = (
+                #     self.lanelet_network.find_lanelet_by_id(self.current_ego_lanelet_id).center_vertices[1]
+                #     - self.lanelet_network.find_lanelet_by_id(self.current_ego_lanelet_id).center_vertices[0]
+                # ) / np.linalg.norm(
+                #     self.lanelet_network.find_lanelet_by_id(self.current_ego_lanelet_id).center_vertices[1]
+                #     - self.lanelet_network.find_lanelet_by_id(self.current_ego_lanelet_id).center_vertices[0]
+                # )
+
+                # signed_dist_to_car = np.dot(r_to_car, direction_player_lanelet)
+                # if signed_dist_to_car < 0:
+                #     vx = self.sim_obs.players[car].state.vx / 1.7
+                # else:
                 vx = self.sim_obs.players[car].state.vx
                 psi = self.sim_obs.players[car].state.psi
                 for t in timesteps:
                     x = x + vx * t * np.cos(psi)
                     y = y + vx * t * np.sin(psi)
-                    self.cars[car].append(self.create_oriented_rectangle([x, y], psi))
+                    self.cars[car].append(self.create_oriented_rectangle([x, y], psi, car))
         # print("LE MACCHINEEEEEEEE: ", self.cars)
         # self.plot_polygons(self.cars)
 
-    def create_oriented_rectangle(self, center, theta):
+    def create_oriented_rectangle(self, center, theta, car_id):
         """
         Create a Shapely polygon representing a rectangle centered at a given point, with specified width, length, and orientation.
 
@@ -650,21 +745,27 @@ class Planner:
         Returns:
             shapely.geometry.Polygon: Oriented rectangle as a polygon.
         """
+        car = self.sim_obs.players[car_id]
+        # assert isinstance(car.state, VehicleState), f"Expected VehicleState, got {type(car.state)}"
         # Rectangle corners in local coordinates (centered at origin)
-        local_corners = np.array(
-            [
-                [1.1 * self.sg.lf, 1.1 * self.sg.w_half],  # Front right
-                [1.1 * self.sg.lf, -1.1 * self.sg.w_half],  # Front left
-                [-1.1 * self.sg.lr, -1.1 * self.sg.w_half],  # Rear left
-                [-1.1 * self.sg.lr, 1.1 * self.sg.w_half],  # Rear right
-            ]
-        )
+        # local_corners = np.array(
+        #     [
+        #         [1.1 * self.sg.lf, 1.1 * self.sg.w_half],  # Front right
+        #         [1.1 * self.sg.lf, -1.1 * self.sg.w_half],  # Front left
+        #         [-1.1 * self.sg.lr, -1.1 * self.sg.w_half],  # Rear left
+        #         [-1.1 * self.sg.lr, 1.1 * self.sg.w_half],  # Rear right
+        #     ]
+        # )
+        local_corners = np.array(car.occupancy.exterior.coords) - np.array(
+            [self.sim_obs.players[car_id].state.x, self.sim_obs.players[car_id].state.y]
+        ).reshape(1, -1)
 
         # Rotation matrix for the given orientation
         rotation_matrix = np.array([[np.cos(theta), -np.sin(theta)], [np.sin(theta), np.cos(theta)]])
 
         # Rotate and translate the corners to global coordinates
-        global_corners = rotation_matrix @ local_corners.T + np.array(center).reshape(-1, 1)
+        # global_corners = rotation_matrix @ local_corners.T + np.array(center).reshape(-1, 1)
+        global_corners = local_corners.T + np.array(center).reshape(-1, 1)
 
         # Create the Shapely polygon
         return Polygon(global_corners.T)

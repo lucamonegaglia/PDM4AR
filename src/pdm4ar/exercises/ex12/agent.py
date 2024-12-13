@@ -60,10 +60,26 @@ class Pdm4arAgent(Agent):
         self.control_points = init_obs.goal.ref_lane.control_points
         self.cycle_counter = 0
         # print("Control points: ", self.control_points)
+
         self.goal_lanelet_id = self.lanelet_network.find_lanelet_by_position([self.control_points[1].q.p])[0][0]
         print("Goal lanelet id: ", self.goal_lanelet_id)
-        self.myplanner = Planner(self.lanelet_network, self.name, self.goal, self.sg, self.goal_lanelet_id)
+        print("Real goal lanelet", self.lanelet_network.find_lanelet_by_position([self.goal.goal_polygon.centroid]))
         self.arrived_at_goal = False
+        self.predecessor_goal_lane_id = self.lanelet_network.find_lanelet_by_id(self.goal_lanelet_id).predecessor
+        if not self.predecessor_goal_lane_id:
+            self.predecessor_goal_lane_id = None
+        else:
+            self.predecessor_goal_lane_id = self.predecessor_goal_lane_id[0]
+            merged_lanelet = self.lanelet_network.find_lanelet_by_id(self.predecessor_goal_lane_id).merge_lanelets(
+                self.lanelet_network.find_lanelet_by_id(self.predecessor_goal_lane_id),
+                self.lanelet_network.find_lanelet_by_id(self.goal_lanelet_id),
+            )
+            self.lanelet_network.remove_lanelet(self.predecessor_goal_lane_id)
+            self.lanelet_network.remove_lanelet(self.goal_lanelet_id)
+            self.lanelet_network.add_lanelet(merged_lanelet)
+            self.goal_lanelet_id = merged_lanelet.lanelet_id
+        self.myplanner = Planner(self.lanelet_network, self.name, self.goal, self.sg, self.goal_lanelet_id)
+
         # print(init_obs.dg_scenario.lanelet_network)
         # print(init_obs.dg_scenario.lanelet_network.find_lanelet_by_position())
 
@@ -107,14 +123,23 @@ class Pdm4arAgent(Agent):
             goal_lanelet = self.lanelet_network.find_lanelet_by_id(self.goal_lanelet_id)
 
             # vector of goal wrt to position and normalized direction of player lanelet, used to determine if goal is in front of us or behind us
-            r_to_goal_lanelet = goal_lanelet.center_vertices[0] - ego_position
+            r_to_goal_lanelet = -goal_lanelet.center_vertices[0] + ego_position
             direction_player_lanelet = (
                 ego_lanelet.center_vertices[1] - ego_lanelet.center_vertices[0]
             ) / np.linalg.norm(ego_lanelet.center_vertices[1] - ego_lanelet.center_vertices[0])
 
             signed_dist_to_goal_lane = np.dot(r_to_goal_lanelet, direction_player_lanelet)
-            dist_to_goal = self.goal.goal_polygon.distance(Point(ego_position))
-            if dist_to_goal < 1 or self.arrived_at_goal:
+            # dist_to_goal = self.goal.goal_polygon.distance(Point(ego_position))
+            # if dist_to_goal < 1 or self.arrived_at_goal:
+            center_vertices = goal_lanelet.center_vertices
+            distance = -center_vertices[0] + ego_position
+            direction_player_lanelet = (
+                goal_lanelet.center_vertices[-1] - goal_lanelet.center_vertices[0]
+            ) / np.linalg.norm(goal_lanelet.center_vertices[-1] - goal_lanelet.center_vertices[0])
+
+            projected_distance = np.dot(distance, direction_player_lanelet)
+
+            if np.max(goal_lanelet.distance) - projected_distance < 1 or self.arrived_at_goal:
                 self.arrived_at_goal = True
                 print("Close to goal, sampling stopped")
                 return VehicleCommands(acc=0, ddelta=0)
@@ -132,8 +157,8 @@ class Pdm4arAgent(Agent):
 
             self.myplanner.update_sim_obs(sim_obs)
 
-            sampled_points_player_lane, index_init_player, index_end_player, dict_points_layer_player = (
-                self.myplanner.sample_points_on_lane(lane_id=current_ego_lanelet_id, num_points=4)
+            sampled_points_player_lane, dict_points_layer_player = self.myplanner.sample_points_on_lane_good(
+                lane_id=current_ego_lanelet_id, num_points=4
             )
             # print("Sampled points player lane: ", sampled_points_player_lane)
             if not sampled_points_player_lane:
@@ -150,7 +175,7 @@ class Pdm4arAgent(Agent):
             # bc_value_init = self.control_points[index_init_player].q.theta
             # bc_value_end = self.control_points[index_end_player].q.theta
             all_splines_player_lane, all_splines_player_lane_dict = self.myplanner.get_all_discretized_splines(
-                sampled_points_player_lane, bc_value_init, bc_value_end
+                sampled_points_player_lane
             )
             if not all_splines_player_lane[0]:
                 print("No splines on player lane")
@@ -175,10 +200,10 @@ class Pdm4arAgent(Agent):
 
             if (
                 current_ego_lanelet_id != self.goal_lanelet_id
-                and signed_dist_to_goal_lane <= sim_obs.players["Ego"].state.vx
+                and signed_dist_to_goal_lane >= -sim_obs.players["Ego"].state.vx
             ):
-                sampled_points_goal_lane, index_init_goal, index_end_goal, dict_points_layer_goal = (
-                    self.myplanner.sample_points_on_lane(lane_id=self.goal_lanelet_id, num_points=4)
+                sampled_points_goal_lane, dict_points_layer_goal = self.myplanner.sample_points_on_lane_good(
+                    lane_id=self.goal_lanelet_id, num_points=4
                 )
                 if not sampled_points_goal_lane:
                     print("No sampled points")
@@ -193,12 +218,9 @@ class Pdm4arAgent(Agent):
                         sampled_points_goal_lane[-1][0][1],
                     ]
                 )
-                # print("Sampled points goal lane: ", sampled_points_goal_lane)
-                bc_value_init = self.control_points[index_init_goal].q.theta
-                bc_value_end = self.control_points[index_end_goal].q.theta
 
                 all_splines_goal_lane, all_splines_goal_lane_dict = self.myplanner.get_all_discretized_splines(
-                    sample_points, bc_value_init, bc_value_end
+                    sample_points
                 )
                 if not all_splines_goal_lane[0]:
                     print("No splines on goal lane")
