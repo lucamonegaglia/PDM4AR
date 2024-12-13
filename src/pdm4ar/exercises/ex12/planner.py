@@ -184,7 +184,7 @@ class Planner:
         sampled_points = []
         dict_points_layer = {}
         perp_direction = np.array([-self.direction[1], self.direction[0]])
-        r = self.radius
+        r = self.radius / 10
         for i, x in enumerate(x_lin):
             center_y = -a / b * x - c / b
             center_point = (x, center_y)
@@ -544,7 +544,6 @@ class Planner:
                     signed_dist_to_car = np.dot(r_to_car, direction_player_lanelet)
                     if signed_dist_to_car < min_dist and signed_dist_to_car > 0:
                         min_dist = signed_dist_to_car
-                        # if self.sim_obs.players[keys].state.vx < vx:
                         vx = self.sim_obs.players[keys].state.vx
         return vx
 
@@ -707,21 +706,6 @@ class Planner:
                 self.cars[car] = []
                 x = self.sim_obs.players[car].state.x
                 y = self.sim_obs.players[car].state.y
-                # r_to_car = (
-                #     np.array([self.sim_obs.players[car].state.x, self.sim_obs.players[car].state.y]) - self.ego_position
-                # )
-                # direction_player_lanelet = (
-                #     self.lanelet_network.find_lanelet_by_id(self.current_ego_lanelet_id).center_vertices[1]
-                #     - self.lanelet_network.find_lanelet_by_id(self.current_ego_lanelet_id).center_vertices[0]
-                # ) / np.linalg.norm(
-                #     self.lanelet_network.find_lanelet_by_id(self.current_ego_lanelet_id).center_vertices[1]
-                #     - self.lanelet_network.find_lanelet_by_id(self.current_ego_lanelet_id).center_vertices[0]
-                # )
-
-                # signed_dist_to_car = np.dot(r_to_car, direction_player_lanelet)
-                # if signed_dist_to_car < 0:
-                #     vx = self.sim_obs.players[car].state.vx / 1.7
-                # else:
                 vx = self.sim_obs.players[car].state.vx
                 psi = self.sim_obs.players[car].state.psi
                 for t in timesteps:

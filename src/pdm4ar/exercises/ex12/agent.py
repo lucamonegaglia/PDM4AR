@@ -259,6 +259,7 @@ class Pdm4arAgent(Agent):
                 best_path = best_path2
                 best_vx = vx2
             best_path = best_path[:-1]
+
             # all_splines = all_splines_player_lane + all_splines_goal_lane
 
             # print("Number of sampled points: ", len(sampled_points_player_lane[0]) * len(sampled_points_player_lane))
