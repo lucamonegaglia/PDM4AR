@@ -784,7 +784,11 @@ class Planner:
                 )
 
                 signed_dist_to_car = np.dot(r_to_car, direction_player_lanelet)
-                if signed_dist_to_car < -1.5:
+                if (
+                    signed_dist_to_car < -1.5
+                    and abs(self.sim_obs.players[car].state.vx - self.sim_obs.players["Ego"].state.vx) < 2
+                ):
+                    # if signed_dist_to_car < -1.5:
                     vx = 0
                     # print("Car is behind")
                 else:
