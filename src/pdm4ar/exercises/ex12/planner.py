@@ -1,5 +1,6 @@
 from calendar import c
 import heapq
+from hmac import new
 from math import isclose
 from mimetypes import init
 import random
@@ -28,7 +29,7 @@ import scipy as sp
 from scipy.interpolate import CubicSpline
 from itertools import product
 from rtree import index
-from shapely import Polygon
+from shapely import Polygon, equals_exact
 
 matplotlib.use("Agg")
 
@@ -174,10 +175,10 @@ class Planner:
         distance_to_line = self.distance_point_to_line_2d(a, b, c, self.ego_position[0], self.ego_position[1])
         projected_ego_x = self.ego_position[0] - a * distance_to_line / np.sqrt(a**2 + b**2)
         theta = np.arctan2(self.direction[1], self.direction[0])
-        x_start = projected_ego_x + max(self.sim_obs.players["Ego"].state.vx, 4 * (self.sg.lr + self.sg.lf)) * np.cos(
+        x_start = projected_ego_x + max(self.sim_obs.players["Ego"].state.vx, 2 * (self.sg.lr + self.sg.lf)) * np.cos(
             theta
         )
-        x_end = x_start + max(self.sim_obs.players["Ego"].state.vx, 4 * (self.sg.lr + self.sg.lf)) * 5 * np.cos(theta)
+        x_end = x_start + max(self.sim_obs.players["Ego"].state.vx, 2 * (self.sg.lr + self.sg.lf)) * 5 * np.cos(theta)
         x_lin = np.linspace(
             x_start,
             x_end,
@@ -186,17 +187,33 @@ class Planner:
         sampled_points = []
         dict_points_layer = {}
         perp_direction = np.array([-self.direction[1], self.direction[0]])
-        r = self.radius / 10
+        r = self.radius
         for i, x in enumerate(x_lin):
             center_y = -a / b * x - c / b
             center_point = (x, center_y)
-            right_point = [x + r * perp_direction[0], center_y + r * perp_direction[1]]
-            left_point = [x - r * perp_direction[0], center_y - r * perp_direction[1]]
+            if lane_id != self.goal_lanelet_id:
+                if self.goal_lanelet_id == self.lanelet_network.find_lanelet_by_id(lane_id).adj_right:
+                    point_adj = [x - r * perp_direction[0], center_y - r * perp_direction[1]]
+                else:
+                    point_adj = [x + r * perp_direction[0], center_y + r * perp_direction[1]]
+                middle_point = ((center_point[0] + point_adj[0]) / 2, (center_point[1] + point_adj[1]) / 2)
+                new_points = [center_point, middle_point]
+                for p in new_points:
+                    # check that p is an array of lenght 2
+                    if len(p) == 2:
+                        dict_points_layer[(p[0], p[1])] = (
+                            i + 1
+                        )  # 1-based index because the first point is the ego position
+                sampled_points.append(new_points)
+            else:
+                new_points = center_point
+                dict_points_layer[(center_point[0], center_point[1])] = i + 1
+                sampled_points.append([new_points])
 
             # Calculate the middle points
-            middle_right_point = ((center_point[0] + right_point[0]) / 2, (center_point[1] + right_point[1]) / 2)
+            # middle_right_point = ((center_point[0] + right_point[0]) / 2, (center_point[1] + right_point[1]) / 2)
 
-            middle_left_point = ((center_point[0] + left_point[0]) / 2, (center_point[1] + left_point[1]) / 2)
+            # middle_left_point = ((center_point[0] + left_point[0]) / 2, (center_point[1] + left_point[1]) / 2)
 
             # The new points: center, middle-right, and middle-left
             # new_points = (center_point, middle_right_point, middle_left_point)
@@ -205,9 +222,8 @@ class Planner:
             #     if len(p) == 2:
             #         dict_points_layer[(p[0], p[1])] = i + 1  # 1-based index because the first point is the ego position
             # sampled_points.append(new_points)
-            new_points = center_point
-            dict_points_layer[(center_point[0], center_point[1])] = i + 1
-            sampled_points.append([new_points])
+            # #dict_points_layer[(center_point[0], center_point[1])] = i + 1
+            # sampled_points.append([new_points])
 
         return sampled_points, dict_points_layer
 
@@ -331,11 +347,13 @@ class Planner:
         parent_map = {}
         heapq.heappush(Q, (0, start_point))
         cost_map = {(start_point[0], start_point[1]): 0}
+        time_map = {(start_point[0], start_point[1]): 0}
         num_layers = len(sampled_points_list)
         # add to dict points layer the start
         dict_points_layer[(start_point[0], start_point[1])] = 0
         while Q:
             cost, current = heapq.heappop(Q)
+            time_to_reach = time_map[(current[0], current[1])]
             if cost > cost_map[(current[0], current[1])]:
                 continue
             if np.isclose(current, goal_point).all():
@@ -362,9 +380,12 @@ class Planner:
             set_of_neighbors = sampled_points_list[dict_points_layer[(current[0], current[1])]]
             for i in range(len(set_of_neighbors)):
                 dest_point = sampled_points_list[dict_points_layer[(current[0], current[1])]][i]
-                new_cost_to_reach = cost + self.objective_function(
-                    all_discretized_splines_dict[(current[0], current[1], dest_point[0], dest_point[1])], vx
-                )
+                spline_to_dest = all_discretized_splines_dict[(current[0], current[1], dest_point[0], dest_point[1])]
+                time_to_reach_dest = time_to_reach + self.eval_time_to_reach(spline_to_dest, vx)
+                obj = self.objective_function(spline_to_dest, vx, time_to_reach)
+                new_cost_to_reach = cost + obj
+                # if np.isclose(current, start_point).all():
+                # print(f"Cost of spline: {current, dest_point}, {vx}: {obj}")
                 # p = sampled_points_list[dict_points_layer[(current[0], current[1])] + 1][i]
                 cost_to_reach_neighbor = cost_map.get(
                     (dest_point[0], dest_point[1]), float("inf")
@@ -372,8 +393,16 @@ class Planner:
                 if new_cost_to_reach < cost_to_reach_neighbor:
                     cost_map[(dest_point[0], dest_point[1])] = new_cost_to_reach
                     parent_map[(dest_point[0], dest_point[1])] = current
+                    time_map[(dest_point[0], dest_point[1])] = time_to_reach_dest
                     heapq.heappush(Q, (new_cost_to_reach, dest_point))
         return path_to_goal, cost_path_to_goal
+
+    def eval_time_to_reach(self, spline, vx):
+        time_to_reach = 0
+        for i in range(1, len(spline)):
+            distance = np.linalg.norm(np.array(spline[i]) - np.array(spline[i - 1]))
+            time_to_reach += distance / vx
+        return time_to_reach
 
     def merge_adjacent_splines(self, splines):
         l = []
@@ -468,7 +497,7 @@ class Planner:
         return best_path, vx
 
     def plot_path_and_cars(
-        self, all_discretized_splines: List[List[Tuple[float, float]]], best_path: Lanelet, vx: float
+        self, all_discretized_splines: List[List[Tuple[float, float]]], best_path: Lanelet, vx: float, t0=0
     ):
         plt.figure(figsize=(10, 6))
 
@@ -480,7 +509,7 @@ class Planner:
         best_path_x, best_path_y = zip(*best_path.center_vertices)
         plt.plot(best_path_x, best_path_y, label="Best Path", color="blue", linewidth=2)
         # self.predict_ego_positions(best_path.center_vertices, vx)
-        self.predict_other_cars_positions(best_path.center_vertices, vx)
+        self.predict_other_cars_positions(best_path.center_vertices, vx, t0)
         # Plot the predicted positions of the cars
         min_dist = float("inf")
         for key, polygons in self.cars.items():
@@ -494,7 +523,7 @@ class Planner:
                         np.array(poly.centroid.coords[0]) - np.array(self.cars["Ego"][i].centroid.coords[0])
                     )
                     closest_timestep = i
-
+        closest_timestep = 0
         # Plot the polygons for the closest timestep
         for key, polygons in self.cars.items():
             poly = polygons[closest_timestep]
@@ -561,6 +590,7 @@ class Planner:
                     [np.array([self.sim_obs.players[keys].state.x, self.sim_obs.players[keys].state.y])]
                 )[0]
                 if not lane_id:
+                    # print("DISASTRO")
                     continue
                 lane_id = lane_id[0]
                 if lane_id == self.goal_lanelet_id:
@@ -579,13 +609,13 @@ class Planner:
                     signed_dist_to_car = np.dot(r_to_car, direction_player_lanelet)
                     if signed_dist_to_car < min_dist and signed_dist_to_car > 0:
                         min_dist = signed_dist_to_car
-                        vx = self.sim_obs.players[keys].state.vx
+                        vx = self.sim_obs.players[keys].state.vx - 0.3
         return vx
 
-    def objective_function(self, spline: List[Tuple[float, float]], vx) -> float:
+    def objective_function(self, spline: List[Tuple[float, float]], vx, t0) -> float:
         objective_value = 0.0
         # t_predict = time.time()
-        self.predict_other_cars_positions(spline, vx)
+        self.predict_other_cars_positions(spline, vx, t0)
         # print("Predict time: ", time.time() - t_predict)
         # t_collision = time.time()
         collisions = self.detect_collisions()
@@ -604,7 +634,8 @@ class Planner:
             a, b, c = self.center_lines[lane_id]
             distance = self.distance_point_to_line_2d(a, b, c, spline[i][0], spline[i][1])
             objective_value += (
-                distance  # not super correct, should be an integral (as long as we don't compute intergrals is okay??)
+                100
+                * distance  # not super correct, should be an integral (as long as we don't compute intergrals is okay??)
             )
         objective_value -= vx
         return objective_value
@@ -700,10 +731,10 @@ class Planner:
         distance = abs(a * x1 + b * y1 + c) / np.sqrt(a**2 + b**2)
         return distance
 
-    def predict_ego_positions(self, spline, vx) -> List[float]:
+    def predict_ego_positions(self, spline, vx, t0) -> List[float]:
         """update cars dictionary and return timesteps list"""
         ego_vx = vx
-        timesteps = [0]
+        timesteps = [t0]
         a = spline[1][1] - spline[0][1]
         b = spline[0][0] - spline[1][0]
         m = -a / b
@@ -715,7 +746,7 @@ class Planner:
             distance = np.linalg.norm(
                 np.array([spline[i][0], spline[i][1]]) - np.array([spline[i + 1][0], spline[i + 1][1]])
             )
-            timesteps.append(distance / ego_vx)
+            timesteps.append(distance / ego_vx + timesteps[-1])
 
             a = spline[i + 1][1] - spline[i][1]
             b = spline[i][0] - spline[i + 1][0]
@@ -725,7 +756,7 @@ class Planner:
 
         return timesteps
 
-    def predict_other_cars_positions(self, spline, vx) -> List[Polygon]:
+    def predict_other_cars_positions(self, spline, vx, t0) -> List[Polygon]:
         """
         Predict the future positions of static obstacles.
 
@@ -735,12 +766,12 @@ class Planner:
         Returns:
         List[StaticObstacle]: A list of static obstacles with predicted positions.
         """
-        timesteps = self.predict_ego_positions(spline, vx)
+        timesteps = self.predict_ego_positions(spline, vx, t0)
         for car in self.sim_obs.players:
             if car != "Ego":
                 self.cars[car] = []
-                x = self.sim_obs.players[car].state.x
-                y = self.sim_obs.players[car].state.y
+                x0 = self.sim_obs.players[car].state.x
+                y0 = self.sim_obs.players[car].state.y
                 r_to_car = (
                     np.array([self.sim_obs.players[car].state.x, self.sim_obs.players[car].state.y]) - self.ego_position
                 )
@@ -755,12 +786,13 @@ class Planner:
                 signed_dist_to_car = np.dot(r_to_car, direction_player_lanelet)
                 if signed_dist_to_car < -1.5:
                     vx = 0
+                    # print("Car is behind")
                 else:
                     vx = self.sim_obs.players[car].state.vx
                 psi = self.sim_obs.players[car].state.psi
                 for t in timesteps:
-                    x = x + vx * t * np.cos(psi)
-                    y = y + vx * t * np.sin(psi)
+                    x = x0 + vx * t * np.cos(psi)
+                    y = y0 + vx * t * np.sin(psi)
                     self.cars[car].append(self.create_oriented_rectangle([x, y], psi, car))
         # print("LE MACCHINEEEEEEEE: ", self.cars)
         # self.plot_polygons(self.cars)
@@ -906,3 +938,6 @@ class Planner:
 # sampled_points = planner.sample_points_on_lane(lane_id, num_points)
 # discretized_spline_points = planner.get_discretized_spline(sampled_points)
 # planner.plot_sampled_points(sampled_points, lane_id, discretized_spline_points)
+
+
+# tutto il codice sotto è per fare il plot delle lanelet e delle macchine

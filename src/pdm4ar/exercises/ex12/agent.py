@@ -266,12 +266,30 @@ class Pdm4arAgent(Agent):
             if cost1 < cost2 and cost1 < cost3:
                 best_path = best_path1
                 best_vx = vx
+                best_cost = cost1
             elif cost2 < cost3:
                 best_path = best_path2
                 best_vx = vx2
+                best_cost = cost2
             else:
                 best_path = best_path3
                 best_vx = vx3
+                best_cost = cost3
+            if best_cost > 100000:
+                end_position = np.array(
+                    [
+                        sampled_points_player_lane[-1][0][0],
+                        sampled_points_player_lane[-1][0][1],
+                    ]
+                )
+                best_path, best_cost = self.myplanner.graph_search(
+                    all_splines_dict,
+                    sample_points,
+                    dict_points_layer,
+                    start_position,
+                    end_position,
+                    vx2,
+                )
             best_path = best_path[:-1]
 
             # all_splines = all_splines_player_lane + all_splines_goal_lane
@@ -289,7 +307,7 @@ class Pdm4arAgent(Agent):
 
             path = self.myplanner.merge_adjacent_splines(best_path)
             path = self.myplanner.get_path_from_waypoints(path)
-            self.myplanner.plot_path_and_cars(all_splines, path, best_vx)
+            self.myplanner.plot_path_and_cars(all_splines, path, best_vx, 0)
             collisions = self.myplanner.detect_collisions()
             for timestep in collisions:
                 if collisions[timestep]:
