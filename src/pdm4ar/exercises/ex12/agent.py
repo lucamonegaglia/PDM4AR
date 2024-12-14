@@ -290,6 +290,8 @@ class Pdm4arAgent(Agent):
                     end_position,
                     vx2,
                 )
+            # print best cost
+            print("Best cost: ", best_cost)
             best_path = best_path[:-1]
 
             # all_splines = all_splines_player_lane + all_splines_goal_lane
@@ -299,7 +301,8 @@ class Pdm4arAgent(Agent):
             # print(sampled_points_player_lane[0][1][0], sampled_points_player_lane[0][1][1])
             # print(sampled_points_player_lane[0][2][0], sampled_points_player_lane[0][2][1])
 
-            self.myplanner.plot_all_discretized_splines(all_splines, best_path)
+            #
+            # self.myplanner.plot_all_discretized_splines(all_splines, best_path)
 
             # best_path_unified = []
             # for i in range(len(best_path)):
@@ -307,7 +310,7 @@ class Pdm4arAgent(Agent):
 
             path = self.myplanner.merge_adjacent_splines(best_path)
             path = self.myplanner.get_path_from_waypoints(path)
-            self.myplanner.plot_path_and_cars(all_splines, path, best_vx, 0)
+            # self.myplanner.plot_path_and_cars(all_splines, path, best_vx, 0)
             collisions = self.myplanner.detect_collisions()
             for timestep in collisions:
                 if collisions[timestep]:

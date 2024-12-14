@@ -175,10 +175,10 @@ class Planner:
         distance_to_line = self.distance_point_to_line_2d(a, b, c, self.ego_position[0], self.ego_position[1])
         projected_ego_x = self.ego_position[0] - a * distance_to_line / np.sqrt(a**2 + b**2)
         theta = np.arctan2(self.direction[1], self.direction[0])
-        x_start = projected_ego_x + max(self.sim_obs.players["Ego"].state.vx, 2 * (self.sg.lr + self.sg.lf)) * np.cos(
+        x_start = projected_ego_x + max(self.sim_obs.players["Ego"].state.vx, 3 * (self.sg.lr + self.sg.lf)) * np.cos(
             theta
         )
-        x_end = x_start + max(self.sim_obs.players["Ego"].state.vx, 2 * (self.sg.lr + self.sg.lf)) * 5 * np.cos(theta)
+        x_end = x_start + max(self.sim_obs.players["Ego"].state.vx, 3 * (self.sg.lr + self.sg.lf)) * 5 * np.cos(theta)
         x_lin = np.linspace(
             x_start,
             x_end,
@@ -296,30 +296,30 @@ class Planner:
             R = np.array([[np.cos(theta), -np.sin(theta)], [np.sin(theta), np.cos(theta)]])
             rotated_sampled_point_1 = R.T @ combination[0]
             rotated_sampled_point_2 = R.T @ combination[1]
-            if rotated_sampled_point_1[0] - rotated_sampled_point_2[0] > 0:
-                plt.figure(figsize=(10, 6))
-                for point in sampled_points_list:
-                    for p in point:
-                        plt.plot(p[0], p[1], "o")
-                plt.plot(self.ego_position[0], self.ego_position[1], "x", markersize=10)
-                plt.plot(
-                    self.lanelet_network.find_lanelet_by_id(self.current_ego_lanelet_id).center_vertices[-1][0],
-                    self.lanelet_network.find_lanelet_by_id(self.current_ego_lanelet_id).center_vertices[-1][1],
-                    "-",
-                    markersize=20,
-                )
-                plt.plot(
-                    self.lanelet_network.find_lanelet_by_id(self.goal_lanelet_id).center_vertices[-1][0],
-                    self.lanelet_network.find_lanelet_by_id(self.goal_lanelet_id).center_vertices[-1][1],
-                    "-",
-                    markersize=20,
-                )
-                plt.title("Sample Points and Ego Position")
-                plt.xlabel("X Coordinate")
-                plt.ylabel("Y Coordinate")
-                plt.grid(True)
-                plt.savefig("sample_points_and_ego_position.png")
-                plt.close()
+            # if rotated_sampled_point_1[0] - rotated_sampled_point_2[0] > 0:
+            #     plt.figure(figsize=(10, 6))
+            #     for point in sampled_points_list:
+            #         for p in point:
+            #             plt.plot(p[0], p[1], "o")
+            #     plt.plot(self.ego_position[0], self.ego_position[1], "x", markersize=10)
+            #     plt.plot(
+            #         self.lanelet_network.find_lanelet_by_id(self.current_ego_lanelet_id).center_vertices[-1][0],
+            #         self.lanelet_network.find_lanelet_by_id(self.current_ego_lanelet_id).center_vertices[-1][1],
+            #         "-",
+            #         markersize=20,
+            #     )
+            #     plt.plot(
+            #         self.lanelet_network.find_lanelet_by_id(self.goal_lanelet_id).center_vertices[-1][0],
+            #         self.lanelet_network.find_lanelet_by_id(self.goal_lanelet_id).center_vertices[-1][1],
+            #         "-",
+            #         markersize=20,
+            #     )
+            # plt.title("Sample Points and Ego Position")
+            # plt.xlabel("X Coordinate")
+            # plt.ylabel("Y Coordinate")
+            # plt.grid(True)
+            # plt.savefig("sample_points_and_ego_position.png")
+            # plt.close()
             spline_points = self.get_discretized_spline(combination, R)
             if not spline_points:
                 continue
@@ -493,7 +493,7 @@ class Planner:
         if min_objective_value > 10000:
             print("Ho preso il muro fratelli!")
 
-        self.plot_path_and_cars(all_discretized_splines, best_path, vx)
+        # self.plot_path_and_cars(all_discretized_splines, best_path, vx)
         return best_path, vx
 
     def plot_path_and_cars(
@@ -609,7 +609,7 @@ class Planner:
                     signed_dist_to_car = np.dot(r_to_car, direction_player_lanelet)
                     if signed_dist_to_car < min_dist and signed_dist_to_car > 0:
                         min_dist = signed_dist_to_car
-                        vx = self.sim_obs.players[keys].state.vx - 0.3
+                        vx = self.sim_obs.players[keys].state.vx
         return vx
 
     def objective_function(self, spline: List[Tuple[float, float]], vx, t0) -> float:
