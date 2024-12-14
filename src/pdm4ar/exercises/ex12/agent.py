@@ -243,7 +243,7 @@ class Pdm4arAgent(Agent):
                 end_position,
                 vx,
             )
-            vx2 = self.myplanner.find_vx()
+            vx2 = self.myplanner.find_vx_same_lane()
             best_path2, cost2 = self.myplanner.graph_search(
                 all_splines_dict,
                 sample_points,
@@ -252,12 +252,26 @@ class Pdm4arAgent(Agent):
                 end_position,
                 vx2,
             )
-            if cost1 < cost2:
+
+            vx3 = self.myplanner.find_vx_goal_lane()
+            best_path3, cost3 = self.myplanner.graph_search(
+                all_splines_dict,
+                sample_points,
+                dict_points_layer,
+                start_position,
+                end_position,
+                vx3,
+            )
+
+            if cost1 < cost2 and cost1 < cost3:
                 best_path = best_path1
                 best_vx = vx
-            else:
+            elif cost2 < cost3:
                 best_path = best_path2
                 best_vx = vx2
+            else:
+                best_path = best_path3
+                best_vx = vx3
             best_path = best_path[:-1]
 
             # all_splines = all_splines_player_lane + all_splines_goal_lane
@@ -275,7 +289,7 @@ class Pdm4arAgent(Agent):
 
             path = self.myplanner.merge_adjacent_splines(best_path)
             path = self.myplanner.get_path_from_waypoints(path)
-            self.myplanner.plot_path_and_cars(all_splines, path, vx)
+            self.myplanner.plot_path_and_cars(all_splines, path, best_vx)
             collisions = self.myplanner.detect_collisions()
             for timestep in collisions:
                 if collisions[timestep]:

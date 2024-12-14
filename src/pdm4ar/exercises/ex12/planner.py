@@ -174,8 +174,10 @@ class Planner:
         distance_to_line = self.distance_point_to_line_2d(a, b, c, self.ego_position[0], self.ego_position[1])
         projected_ego_x = self.ego_position[0] - a * distance_to_line / np.sqrt(a**2 + b**2)
         theta = np.arctan2(self.direction[1], self.direction[0])
-        x_start = projected_ego_x + self.sim_obs.players["Ego"].state.vx * np.cos(theta)
-        x_end = x_start + self.sim_obs.players["Ego"].state.vx * 5 * np.cos(theta)
+        x_start = projected_ego_x + max(self.sim_obs.players["Ego"].state.vx, 4 * (self.sg.lr + self.sg.lf)) * np.cos(
+            theta
+        )
+        x_end = x_start + max(self.sim_obs.players["Ego"].state.vx, 4 * (self.sg.lr + self.sg.lf)) * 5 * np.cos(theta)
         x_lin = np.linspace(
             x_start,
             x_end,
@@ -197,12 +199,15 @@ class Planner:
             middle_left_point = ((center_point[0] + left_point[0]) / 2, (center_point[1] + left_point[1]) / 2)
 
             # The new points: center, middle-right, and middle-left
-            new_points = (center_point, middle_right_point, middle_left_point)
-            for p in new_points:
-                # check that p is an array of lenght 2
-                if len(p) == 2:
-                    dict_points_layer[(p[0], p[1])] = i + 1  # 1-based index because the first point is the ego position
-            sampled_points.append(new_points)
+            # new_points = (center_point, middle_right_point, middle_left_point)
+            # for p in new_points:
+            #     # check that p is an array of lenght 2
+            #     if len(p) == 2:
+            #         dict_points_layer[(p[0], p[1])] = i + 1  # 1-based index because the first point is the ego position
+            # sampled_points.append(new_points)
+            new_points = center_point
+            dict_points_layer[(center_point[0], center_point[1])] = i + 1
+            sampled_points.append([new_points])
 
         return sampled_points, dict_points_layer
 
@@ -517,7 +522,7 @@ class Planner:
         plt.savefig("all_splines_best_path_and_cars.png")
         plt.close()
 
-    def find_vx(self):
+    def find_vx_same_lane(self):
         min_dist = float("inf")
         vx = self.sim_obs.players["Ego"].state.vx
         for keys in self.sim_obs.players:
@@ -539,6 +544,36 @@ class Planner:
                     ) / np.linalg.norm(
                         self.lanelet_network.find_lanelet_by_id(self.current_ego_lanelet_id).center_vertices[1]
                         - self.lanelet_network.find_lanelet_by_id(self.current_ego_lanelet_id).center_vertices[0]
+                    )
+
+                    signed_dist_to_car = np.dot(r_to_car, direction_player_lanelet)
+                    if signed_dist_to_car < min_dist and signed_dist_to_car > 0:
+                        min_dist = signed_dist_to_car
+                        vx = self.sim_obs.players[keys].state.vx
+        return vx
+
+    def find_vx_goal_lane(self):
+        min_dist = float("inf")
+        vx = self.sim_obs.players["Ego"].state.vx
+        for keys in self.sim_obs.players:
+            if keys != "Ego":
+                lane_id = self.lanelet_network.find_lanelet_by_position(
+                    [np.array([self.sim_obs.players[keys].state.x, self.sim_obs.players[keys].state.y])]
+                )[0]
+                if not lane_id:
+                    continue
+                lane_id = lane_id[0]
+                if lane_id == self.goal_lanelet_id:
+                    r_to_car = (
+                        np.array([self.sim_obs.players[keys].state.x, self.sim_obs.players[keys].state.y])
+                        - self.ego_position
+                    )
+                    direction_player_lanelet = (
+                        self.lanelet_network.find_lanelet_by_id(self.goal_lanelet_id).center_vertices[1]
+                        - self.lanelet_network.find_lanelet_by_id(self.goal_lanelet_id).center_vertices[0]
+                    ) / np.linalg.norm(
+                        self.lanelet_network.find_lanelet_by_id(self.goal_lanelet_id).center_vertices[1]
+                        - self.lanelet_network.find_lanelet_by_id(self.goal_lanelet_id).center_vertices[0]
                     )
 
                     signed_dist_to_car = np.dot(r_to_car, direction_player_lanelet)
@@ -706,7 +741,22 @@ class Planner:
                 self.cars[car] = []
                 x = self.sim_obs.players[car].state.x
                 y = self.sim_obs.players[car].state.y
-                vx = self.sim_obs.players[car].state.vx
+                r_to_car = (
+                    np.array([self.sim_obs.players[car].state.x, self.sim_obs.players[car].state.y]) - self.ego_position
+                )
+                direction_player_lanelet = (
+                    self.lanelet_network.find_lanelet_by_id(self.current_ego_lanelet_id).center_vertices[1]
+                    - self.lanelet_network.find_lanelet_by_id(self.current_ego_lanelet_id).center_vertices[0]
+                ) / np.linalg.norm(
+                    self.lanelet_network.find_lanelet_by_id(self.current_ego_lanelet_id).center_vertices[1]
+                    - self.lanelet_network.find_lanelet_by_id(self.current_ego_lanelet_id).center_vertices[0]
+                )
+
+                signed_dist_to_car = np.dot(r_to_car, direction_player_lanelet)
+                if signed_dist_to_car < -1.5:
+                    vx = 0
+                else:
+                    vx = self.sim_obs.players[car].state.vx
                 psi = self.sim_obs.players[car].state.psi
                 for t in timesteps:
                     x = x + vx * t * np.cos(psi)
