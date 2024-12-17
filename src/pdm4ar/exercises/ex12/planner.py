@@ -788,6 +788,7 @@ class Planner:
                 if (
                     signed_dist_to_car < -1.5
                     and abs(self.sim_obs.players[car].state.vx - self.sim_obs.players["Ego"].state.vx) < 2
+                    and False
                 ):
                     # if signed_dist_to_car < -1.5:
                     vx = 0
