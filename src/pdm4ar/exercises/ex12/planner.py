@@ -32,6 +32,7 @@ from rtree import index
 from shapely import Polygon, equals_exact
 
 matplotlib.use("Agg")
+# questo è il codice
 
 
 class Planner:
