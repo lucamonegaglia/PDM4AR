@@ -10,5 +10,10 @@ testcases:
     others:
       names: [P5, P8, P9, P10, P16, P17, P18, P24, P26, P28, P29, P30, P31, P32, P33, P34, P35]
     description: "scenario1"
+    # Lanelet 28: {36, 34, 31, 24, 18, 9, 5, 2, 'P31', 'P33', 'P34', 'P28', 'P26', 'P32', 'P30', 'P29', 'P35'}
+    # Lanelet 42: {'P17', 'P23', '20', 25, 10, 8, 3}
+    # Lanelet 26: {'P21', 'P16', 'P19', 14, 6, 4}
+    # Lanelet 23: {'P15', 27, 13, 7, 0}
+    # Lanelet 20: {'P22', 11, 1}
 
 seed: 98

@@ -11,6 +11,13 @@ testcases:
       names: [P4, P10, P15, P18, P21]
     description: "scenario1"
 
+    # Lanelet 29: {24, 21, 'P10', 'P18', 'P19', 'P21', 0, 1}
+    # Lanelet 33: {25, 'P23', '19', 'P11', 'P15', 'P4', 3, 5, 2}
+    # Lanelet 35: {'P29', 'P20', 9, 7}
+    # Lanelet 37: {'P22', 'P13', 'P16', 'P28', 'P14', 6}
+    # Lanelet 39: {'P17', 25, 12}
+    # Lanelet 23: {'P27'}
+
   -
     scenario: "ESP_Mad-1_10_I-1-1.cr"
     max_sim_time: 15.0
@@ -20,6 +27,10 @@ testcases:
     others:
       names: [P7, P10, P13, P17, P18, P19, P21]
     description: "scenario2"
+    # Lanelet 8: {0, 3, 6, 'P18', 'P10', 'P20', 'P14'}
+    # Lanelet 7: {'P7', 'P13', 'P2', 'P19', 'P17', 'P21', 1}
+    # Lanelet 6: {15, 11, 8, 'P4'}
+    # Lanelet 5: {16, 12, 'P9', 5}
 
 
 seed: 98
