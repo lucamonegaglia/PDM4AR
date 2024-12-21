@@ -104,6 +104,29 @@ class Pdm4arAgent(Agent):
         if self.flag:
             ego_position = np.array([sim_obs.players["Ego"].state.x, sim_obs.players["Ego"].state.y])
             self.myplanner.compute_center_lines_coefficients(ego_position)
+            # calculate average velocity of the cars in the goal lane
+            tot_speed = 0
+            n_cars_goal_lane = 0
+            for car in sim_obs.players:
+                if car != "Ego":
+                    position = np.array([sim_obs.players[car].state.x, sim_obs.players[car].state.y])
+                    if self.lanelet_network.find_lanelet_by_position([position])[0][0] == self.goal_lanelet_id:
+                        tot_speed += sim_obs.players[car].state.vx
+                        n_cars_goal_lane += 1
+            # max_distance = 0
+            # # calculate the density of the cars in the goal lane
+            # if n_cars_goal_lane > 0:
+            #     # calculate density using goal lanelet length
+            #     density = self.lanelet_network.find_lanelet_by_id(self.goal_lanelet_id).distance[-1] / n_cars_goal_lane
+            #     print(f"Density in the goal lane: {density}")
+            if n_cars_goal_lane > 0:
+                avg_speed = tot_speed / n_cars_goal_lane
+                if avg_speed < 1.7:
+                    self.myplanner.set_traffic()
+                    print(f"TRAFFIC, average speed: {avg_speed}")
+                else:
+                    print(f"No traffic, average speed: {avg_speed}")
+
             self.flag = False
         if self.cycle_counter % 3 == 0:
             # self.flag = False

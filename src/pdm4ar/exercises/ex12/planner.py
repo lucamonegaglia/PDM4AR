@@ -66,6 +66,7 @@ class Planner:
         center_vertice = self.lanelet_network.find_lanelet_by_id(self.goal_lanelet_id).center_vertices[0]
         left_vertice = self.lanelet_network.find_lanelet_by_id(self.goal_lanelet_id).left_vertices[0]
         self.radius = np.linalg.norm(center_vertice - left_vertice)
+        self.traffic = False
 
     def set_sampling_on_goal_lane(self):
         self.sampling_on_goal_lane = True
@@ -788,7 +789,7 @@ class Planner:
                 if (
                     signed_dist_to_car < -1.5
                     and abs(self.sim_obs.players[car].state.vx - self.sim_obs.players["Ego"].state.vx) < 2
-                    and False
+                    and self.traffic
                 ):
                     # if signed_dist_to_car < -1.5:
                     vx = 0
@@ -935,6 +936,9 @@ class Planner:
                     collisions[timestep].append(car_to_id[car_id])
 
         return collisions
+
+    def set_traffic(self):
+        self.traffic = True
 
 
 # Example usage
