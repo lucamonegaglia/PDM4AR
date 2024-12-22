@@ -3,7 +3,7 @@ task_level: 1
 testcases:
   -
     scenario: "ZAM_Zip-1_64_T-1"
-    max_sim_time: 0.1
+    max_sim_time: 10.0
     ego:
       original_name: P0
       goal_lane_id: 26

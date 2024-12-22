@@ -25,12 +25,25 @@ testcases:
       original_name: P14
       goal_lane_id: 7
     others:
-      names: [P7, P10, P13, P17, P18, P19, P21]
+      names: [P7, P13, P17, P18, P19, P21, P2, P1, P20]
     description: "scenario2"
     # Lanelet 8: {0, 3, 6, 'P18', 'P10', 'P20', 'P14'}
     # Lanelet 7: {'P7', 'P13', 'P2', 'P19', 'P17', 'P21', 1}
     # Lanelet 6: {15, 11, 8, 'P4'}
     # Lanelet 5: {16, 12, 'P9', 5}
+
+  -
+    scenario: "USA_US101-10_3_T-1"
+    max_sim_time: 10.0
+    ego:
+      original_name: P26
+      goal_lane_id: 40
+    others:
+      names: [all]
+    description: "scenario3"
+    # this scenario is taken from the xml file of the second test case
+    # in config_1.yaml
+
 
 
 seed: 98

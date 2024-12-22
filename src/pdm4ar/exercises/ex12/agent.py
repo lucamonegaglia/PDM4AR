@@ -39,15 +39,15 @@ class Pdm4arAgent(Agent):
     goal: PlanningGoal
     sg: VehicleGeometry
     sp: VehicleParameters
-    flag = True
+    start = True
     lanelet_network: LaneletNetwork
     control_points: Sequence
 
     def __init__(self):
         # feel free to remove/modify  the following
         self.params = Pdm4arAgentParams()
-        self.myplanner = ()
-        self.mycontroller = ()
+        self.myplanner = Planner()
+        self.mycontroller = PurePursuitController()
 
     def on_episode_init(self, init_obs: InitSimObservations):
         """This method is called by the simulator only at the beginning of each simulation.
@@ -78,7 +78,7 @@ class Pdm4arAgent(Agent):
             self.lanelet_network.remove_lanelet(self.goal_lanelet_id)
             self.lanelet_network.add_lanelet(merged_lanelet)
             self.goal_lanelet_id = merged_lanelet.lanelet_id
-        self.myplanner = Planner(self.lanelet_network, self.name, self.goal, self.sg, self.goal_lanelet_id)
+        self.myplanner.initialize(self.lanelet_network, self.name, self.goal, self.sg, self.goal_lanelet_id)
 
         # print(init_obs.dg_scenario.lanelet_network)
         # print(init_obs.dg_scenario.lanelet_network.find_lanelet_by_position())
@@ -93,15 +93,7 @@ class Pdm4arAgent(Agent):
         :return:
         """
 
-        # todo implement here some better planning
-
-        # In here you can find the observation of the lidar + the state of my vehicle
-        # print(sim_obs.players)
-        # print(sim_obs.players["Ego"].state.x, sim_obs.players["Ego"].state.y)
-
-        # print("Current ego lanelet: ", current_ego_lanelet_id)
-
-        if self.flag:
+        if self.start:
             ego_position = np.array([sim_obs.players["Ego"].state.x, sim_obs.players["Ego"].state.y])
             self.myplanner.compute_center_lines_coefficients(ego_position)
             # calculate average velocity of the cars in the goal lane
@@ -127,15 +119,13 @@ class Pdm4arAgent(Agent):
                 else:
                     print(f"No traffic, average speed: {avg_speed}")
 
-            self.flag = False
+            self.start = False
         if self.cycle_counter % 3 == 0:
             # self.flag = False
             # profiler = cProfile.Profile()
             # profiler.enable()  # Avvia il profiler
             # t = time.time()
             ego_position = np.array([sim_obs.players["Ego"].state.x, sim_obs.players["Ego"].state.y])
-            # print("Position: ", ego_position)
-            # print("vx: ", sim_obs.players["Ego"].state.vx)
             l = self.lanelet_network.find_lanelet_by_position([ego_position])[0]
             if not l:
                 print("Outside of lane")
@@ -167,36 +157,16 @@ class Pdm4arAgent(Agent):
                 print("Close to goal, sampling stopped")
                 return VehicleCommands(acc=0, ddelta=0)
 
-            # print("Ego Lanelet Points", ego_lanelet.center_vertices)
-            # print("Goal Lanelet Points", goal_lanelet.center_vertices)
-            # self.flag = False
-            # self.myplanner.plot_sampled_points(
-            #     self.myplanner.sample_points_on_lane(lane_id=current_ego_lanelet_id, num_points=3),
-            #     current_ego_lanelet_id,
-            #     self.myplanner.get_discretized_spline(
-            #         self.myplanner.sample_points_on_lane(lane_id=current_ego_lanelet_id, num_points=3)
-            #     ),
-            # )
-
             self.myplanner.update_sim_obs(sim_obs)
 
             sampled_points_player_lane, dict_points_layer_player = self.myplanner.sample_points_on_lane_good(
                 lane_id=current_ego_lanelet_id, num_points=4
             )
-            # print("Sampled points player lane: ", sampled_points_player_lane)
+
             if not sampled_points_player_lane:
                 print("No sampled points")
                 return VehicleCommands(acc=0, ddelta=0)
-            bc_value_init = np.arctan2(
-                sampled_points_player_lane[1][0][1] - sampled_points_player_lane[0][0][1],
-                sampled_points_player_lane[1][0][0] - sampled_points_player_lane[0][0][0],
-            )
-            bc_value_end = np.arctan2(
-                sampled_points_player_lane[-1][0][1] - sampled_points_player_lane[-2][0][1],
-                sampled_points_player_lane[-1][0][0] - sampled_points_player_lane[-2][0][0],
-            )
-            # bc_value_init = self.control_points[index_init_player].q.theta
-            # bc_value_end = self.control_points[index_end_player].q.theta
+
             all_splines_player_lane, all_splines_player_lane_dict = self.myplanner.get_all_discretized_splines(
                 sampled_points_player_lane
             )
@@ -298,11 +268,12 @@ class Pdm4arAgent(Agent):
                 best_path = best_path3
                 best_vx = vx3
                 best_cost = cost3
-            if best_cost > 100000:
+            # if I made a collision I am not in the goal lane stay there
+            if best_cost > 1000000 and current_ego_lanelet_id != self.goal_lanelet_id:
                 end_position = np.array(
                     [
-                        sampled_points_player_lane[-1][0][0],
-                        sampled_points_player_lane[-1][0][1],
+                        sampled_points_player_lane[-1][1][0],
+                        sampled_points_player_lane[-1][1][1],
                     ]
                 )
                 best_path, best_cost = self.myplanner.graph_search(
@@ -311,25 +282,12 @@ class Pdm4arAgent(Agent):
                     dict_points_layer,
                     start_position,
                     end_position,
-                    vx2,
+                    min(vx2, vx3 * 0.5),
                 )
+                best_vx = min(vx2, vx3 * 0.5)
             # print best cost
             print("Best cost: ", best_cost)
             best_path = best_path[:-1]
-
-            # all_splines = all_splines_player_lane + all_splines_goal_lane
-
-            # print("Number of sampled points: ", len(sampled_points_player_lane[0]) * len(sampled_points_player_lane))
-            # print(sampled_points_player_lane[0][0][0], sampled_points_player_lane[0][0][1])
-            # print(sampled_points_player_lane[0][1][0], sampled_points_player_lane[0][1][1])
-            # print(sampled_points_player_lane[0][2][0], sampled_points_player_lane[0][2][1])
-
-            #
-            # self.myplanner.plot_all_discretized_splines(all_splines, best_path)
-
-            # best_path_unified = []
-            # for i in range(len(best_path)):
-            #     best_path_unified += best_path[i]
 
             path = self.myplanner.merge_adjacent_splines(best_path)
             path = self.myplanner.get_path_from_waypoints(path)
@@ -339,10 +297,7 @@ class Pdm4arAgent(Agent):
                 if collisions[timestep]:
                     print("COLLISION DETECTED", collisions[timestep])
                     break
-            # path, vx = self.myplanner.get_best_path(all_splines)
-            # self.myplanner.predict_other_cars_positions(path)
-            # self.myplanner.plot_all_discretized_splines(all_splines, path.center_vertices)
-            self.mycontroller = PurePursuitController(path)
+            self.mycontroller.initialize(path)
             self.mycontroller.update_speed_reference(best_vx)
             # print("UPDATED SPEED REF TO", vx)
         self.cycle_counter += 1

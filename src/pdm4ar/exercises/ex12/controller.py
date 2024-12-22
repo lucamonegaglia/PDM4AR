@@ -122,7 +122,10 @@ class VehicleDyn:
 
 
 class PurePursuitController:
-    def __init__(self, path: Lanelet):
+    def __init__(self):
+        pass
+
+    def initialize(self, path: Lanelet):
         self.speed_controller = HL_SpeedController()
         self.steer_controller = HL_SteerController(path)
 
