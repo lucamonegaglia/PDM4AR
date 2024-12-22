@@ -42,6 +42,7 @@ class Pdm4arAgent(Agent):
     start = True
     lanelet_network: LaneletNetwork
     control_points: Sequence
+    n_unsuccessful_merging = 0
 
     def __init__(self):
         # feel free to remove/modify  the following
@@ -226,65 +227,61 @@ class Pdm4arAgent(Agent):
                 all_splines = all_splines_player_lane
             self.myplanner.where_is_goal()
             # access vx of ego
-            vx = sim_obs.players["Ego"].state.vx
-            best_vx = vx
-            best_path1, cost1 = self.myplanner.graph_search(
-                all_splines_dict,
-                sample_points,
-                dict_points_layer,
-                start_position,
-                end_position,
-                vx,
-            )
-            vx2 = self.myplanner.find_vx_same_lane()
-            best_path2, cost2 = self.myplanner.graph_search(
-                all_splines_dict,
-                sample_points,
-                dict_points_layer,
-                start_position,
-                end_position,
-                vx2,
-            )
-
-            vx3 = self.myplanner.find_vx_goal_lane()
-            best_path3, cost3 = self.myplanner.graph_search(
-                all_splines_dict,
-                sample_points,
-                dict_points_layer,
-                start_position,
-                end_position,
-                vx3,
-            )
-
-            if cost1 < cost2 and cost1 < cost3:
-                best_path = best_path1
-                best_vx = vx
-                best_cost = cost1
-            elif cost2 < cost3:
-                best_path = best_path2
-                best_vx = vx2
-                best_cost = cost2
-            else:
-                best_path = best_path3
-                best_vx = vx3
-                best_cost = cost3
-            # if I made a collision I am not in the goal lane stay there
-            if best_cost > 1000000 and current_ego_lanelet_id != self.goal_lanelet_id:
-                end_position = np.array(
-                    [
-                        sampled_points_player_lane[-1][1][0],
-                        sampled_points_player_lane[-1][1][1],
-                    ]
-                )
+            best_vx = 0
+            if current_ego_lanelet_id == self.goal_lanelet_id:
+                vx_car_ahead = self.myplanner.find_vx_same_lane()
+                print("I am in the goal lane and follow the speed of the car ahead")
+                best_vx = vx_car_ahead
                 best_path, best_cost = self.myplanner.graph_search(
                     all_splines_dict,
                     sample_points,
                     dict_points_layer,
                     start_position,
                     end_position,
-                    min(vx2, vx3 * 0.5),
+                    vx_car_ahead,
                 )
-                best_vx = min(vx2, vx3 * 0.5)
+            else:
+                vx_vector = []
+                vx_vector.append(sim_obs.players["Ego"].state.vx)
+                vx_vector.append(self.myplanner.find_vx_same_lane())
+                vx_vector.append(self.myplanner.find_vx_goal_lane())
+                vx_vector_sorted = vx_vector
+
+                best_vx = 0
+                best_path = []
+                # iniitial cost infinite
+                best_cost = np.inf
+                for o, v in enumerate(vx_vector_sorted):
+                    path, cost = self.myplanner.graph_search(
+                        all_splines_dict, sample_points, dict_points_layer, start_position, end_position, v
+                    )
+                    if cost < best_cost:
+                        best_path = path
+                        best_vx = v
+                        best_cost = cost
+
+                if best_cost > 100000 and current_ego_lanelet_id != self.goal_lanelet_id:
+                    if self.n_unsuccessful_merging >= 10:
+                        vx_unsuccessful_merging = min(vx_vector[1], vx_vector[2] * 0.5)
+                    else:
+                        vx_unsuccessful_merging = vx_vector[1]
+                    end_position = np.array(
+                        [
+                            sampled_points_player_lane[-1][1][0],
+                            sampled_points_player_lane[-1][1][1],
+                        ]
+                    )
+                    best_path, best_cost = self.myplanner.graph_search(
+                        all_splines_dict,
+                        sample_points,
+                        dict_points_layer,
+                        start_position,
+                        end_position,
+                        vx_unsuccessful_merging,
+                    )
+                    best_vx = vx_unsuccessful_merging
+                    self.n_unsuccessful_merging += 1
+
             # print best cost
             print("Best cost: ", best_cost)
             best_path = best_path[:-1]

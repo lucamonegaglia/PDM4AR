@@ -632,11 +632,15 @@ class Planner:
                 else:
                     vx = self.sim_obs.players[car].state.vx
                 psi = self.sim_obs.players[car].state.psi
-                if signed_dist_to_car < -2:
+                if signed_dist_to_car < -1.5:
                     # constant deceleration model
                     for t in timesteps:
-                        x = x0 + vx * t * np.cos(psi) - 0.5 * 8 * (t**2) * np.cos(psi)
-                        y = y0 + vx * t * np.sin(psi) - 0.5 * 8 * (t**2) * np.sin(psi)
+                        if vx - 8 * t < 0:
+                            x = x0
+                            y = y0
+                        else:
+                            x = x0 + max(vx * t * np.cos(psi) - 0.5 * 8 * (t**2) * np.cos(psi), 0)
+                            y = y0 + max(vx * t * np.sin(psi) - 0.5 * 8 * (t**2) * np.sin(psi), 0)
                         self.cars[car].append(self.create_oriented_rectangle([x, y], psi, car))
                 else:
                     for t in timesteps:
@@ -659,11 +663,9 @@ class Planner:
             shapely.geometry.Polygon: Oriented rectangle as a polygon.
         """
         car = self.sim_obs.players[car_id]
-        local_corners = (
-            np.array(car.occupancy.exterior.coords)
-            - np.array([self.sim_obs.players[car_id].state.x, self.sim_obs.players[car_id].state.y]).reshape(1, -1)
-            * 1.1
-        )
+        local_corners = np.array(car.occupancy.exterior.coords) - np.array(
+            [self.sim_obs.players[car_id].state.x, self.sim_obs.players[car_id].state.y]
+        ).reshape(1, -1)
 
         # Rotation matrix for the given orientation
         rotation_matrix = np.array([[np.cos(theta), -np.sin(theta)], [np.sin(theta), np.cos(theta)]])

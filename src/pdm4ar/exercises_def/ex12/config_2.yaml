@@ -3,7 +3,7 @@ task_level: 2
 testcases:
   -
     scenario: "USA_US101-9_1_T-1"
-    max_sim_time: 10.0
+    max_sim_time: 10
     ego:
       original_name: P19
       goal_lane_id: 29
@@ -32,17 +32,17 @@ testcases:
     # Lanelet 6: {15, 11, 8, 'P4'}
     # Lanelet 5: {16, 12, 'P9', 5}
 
-  -
-    scenario: "USA_US101-10_3_T-1"
-    max_sim_time: 10.0
-    ego:
-      original_name: P26
-      goal_lane_id: 40
-    others:
-      names: [all]
-    description: "scenario3"
-    # this scenario is taken from the xml file of the second test case
-    # in config_1.yaml
+  # -
+  #   scenario: "USA_US101-10_3_T-1"
+  #   max_sim_time: 10.0
+  #   ego:
+  #     original_name: P26
+  #     goal_lane_id: 40
+  #   others:
+  #     names: [all]
+  #   description: "scenario3"
+  #   # this scenario is taken from the xml file of the second test case
+  #   # in config_1.yaml
 
 
 
