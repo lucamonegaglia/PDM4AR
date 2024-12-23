@@ -96,7 +96,12 @@ class Pdm4arAgent(Agent):
 
         if self.start:
             ego_position = np.array([sim_obs.players["Ego"].state.x, sim_obs.players["Ego"].state.y])
-            self.myplanner.compute_center_lines_coefficients(ego_position)
+            # build a list with current lanelet and goal one
+            current_ego_lanelet_id = self.lanelet_network.find_lanelet_by_position([ego_position])[0][0]
+            current_ego_lanelet = self.lanelet_network.find_lanelet_by_id(current_ego_lanelet_id)
+            goal_lanelet = self.lanelet_network.find_lanelet_by_id(self.goal_lanelet_id)
+            lanes = [current_ego_lanelet, goal_lanelet]
+            self.myplanner.compute_center_lines_coefficients(ego_position, lanes)
             # calculate average velocity of the cars in the goal lane
             tot_speed = 0
             n_cars_goal_lane = 0
@@ -135,6 +140,12 @@ class Pdm4arAgent(Agent):
 
             ego_lanelet = self.lanelet_network.find_lanelet_by_id(current_ego_lanelet_id)
             goal_lanelet = self.lanelet_network.find_lanelet_by_id(self.goal_lanelet_id)
+
+            if self.cycle_counter % 12 == 0:
+                lanes = [goal_lanelet]
+                if self.goal_lanelet_id != current_ego_lanelet_id:
+                    lanes.append(ego_lanelet)
+                self.myplanner.compute_center_lines_coefficients(ego_position, lanes)
 
             # vector of goal wrt to position and normalized direction of player lanelet, used to determine if goal is in front of us or behind us
             r_to_goal_lanelet = -goal_lanelet.center_vertices[0] + ego_position
@@ -230,15 +241,16 @@ class Pdm4arAgent(Agent):
             best_vx = 0
             if current_ego_lanelet_id == self.goal_lanelet_id:
                 vx_car_ahead = self.myplanner.find_vx_same_lane()
-                print("I am in the goal lane and follow the speed of the car ahead")
+                # print("I am in the goal lane and follow the speed of the car ahead")
                 best_vx = vx_car_ahead
-                best_path, best_cost = self.myplanner.graph_search(
+                best_path, best_cost, best_time_to_goal = self.myplanner.graph_search(
                     all_splines_dict,
                     sample_points,
                     dict_points_layer,
                     start_position,
                     end_position,
                     vx_car_ahead,
+                    self.goal_lanelet_id,
                 )
             else:
                 vx_vector = []
@@ -251,18 +263,27 @@ class Pdm4arAgent(Agent):
                 best_path = []
                 # iniitial cost infinite
                 best_cost = np.inf
+                best_time_to_goal = 0
                 for o, v in enumerate(vx_vector_sorted):
-                    path, cost = self.myplanner.graph_search(
-                        all_splines_dict, sample_points, dict_points_layer, start_position, end_position, v
+                    path, cost, time_to_goal = self.myplanner.graph_search(
+                        all_splines_dict,
+                        sample_points,
+                        dict_points_layer,
+                        start_position,
+                        end_position,
+                        v,
+                        self.goal_lanelet_id,
                     )
                     if cost < best_cost:
                         best_path = path
                         best_vx = v
                         best_cost = cost
+                        best_time_to_goal = time_to_goal
 
-                if best_cost > 100000 and current_ego_lanelet_id != self.goal_lanelet_id:
+                if best_cost > 1000000 and current_ego_lanelet_id != self.goal_lanelet_id:
                     if self.n_unsuccessful_merging >= 10:
                         vx_unsuccessful_merging = min(vx_vector[1], vx_vector[2] * 0.5)
+                        print("Vai piano e aspetta")
                     else:
                         vx_unsuccessful_merging = vx_vector[1]
                     end_position = np.array(
@@ -271,13 +292,14 @@ class Pdm4arAgent(Agent):
                             sampled_points_player_lane[-1][1][1],
                         ]
                     )
-                    best_path, best_cost = self.myplanner.graph_search(
+                    best_path, best_cost, best_time_to_goal = self.myplanner.graph_search(
                         all_splines_dict,
                         sample_points,
                         dict_points_layer,
                         start_position,
                         end_position,
                         vx_unsuccessful_merging,
+                        self.goal_lanelet_id,
                     )
                     best_vx = vx_unsuccessful_merging
                     self.n_unsuccessful_merging += 1
@@ -287,10 +309,26 @@ class Pdm4arAgent(Agent):
             best_path = best_path[:-1]
 
             path = self.myplanner.merge_adjacent_splines(best_path)
+            # calculate cost on path
+            # obj = self.myplanner.objective_function(path, best_vx, 0, self.goal_lanelet_id)
+            # time_to_goal = self.myplanner.eval_time_to_reach(path, best_vx)
+            # print("Time to goal: ", time_to_goal)
+            # sum = 0
+            # comulative_cost = 0
+            # for pezzo in best_path:
+            #     comulative_cost += self.myplanner.objective_function(pezzo, best_vx, sum, self.goal_lanelet_id)
+            #     sum += self.myplanner.eval_time_to_reach(pezzo, best_vx)
+            # print("Sum of times: ", sum)
+            # print("Comulative cost: ", comulative_cost)
+
+            # print("Cost on path: ", obj)
             path = self.myplanner.get_path_from_waypoints(path)
             # self.myplanner.plot_path_and_cars(all_splines, path, best_vx, 0)
+
             collisions = self.myplanner.detect_collisions()
             for timestep in collisions:
+                # if self.n_unsuccessful_merging >= 5:
+                #     self.myplanner.plot_path_and_cars(all_splines, path, best_vx, timestep)
                 if collisions[timestep]:
                     print("COLLISION DETECTED", collisions[timestep])
                     break

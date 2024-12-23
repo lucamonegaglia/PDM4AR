@@ -72,6 +72,7 @@ class Planner:
         left_vertice = self.lanelet_network.find_lanelet_by_id(self.goal_lanelet_id).left_vertices[0]
         self.radius = np.linalg.norm(center_vertice - left_vertice)
         self.traffic = False
+        self.center_lines = {}
 
     def set_sampling_on_goal_lane(self):
         self.sampling_on_goal_lane = True
@@ -234,6 +235,7 @@ class Planner:
         start_point: Sequence[np.ndarray],
         goal_point: Sequence[np.ndarray],
         vx,
+        lane_id: int,
     ):
         # TODO implement graph search for the best path using UCB
         Q = []
@@ -255,11 +257,11 @@ class Planner:
                 # append to path_to_goal the spline between current and current's parent
                 parent = parent_map[(current[0], current[1])]
                 path_to_goal.append(all_discretized_splines_dict[(parent[0], parent[1], current[0], current[1])])
-                cost_path_to_goal += cost
+                cost_path_to_goal = cost
+                time_path_to_goal = time_to_reach
                 while not np.isclose(current, start_point).all():
                     parent = parent_map[(current[0], current[1])]
                     path_to_goal.insert(0, all_discretized_splines_dict[(parent[0], parent[1], current[0], current[1])])
-                    cost_path_to_goal += cost_map[(current[0], current[1])]
                     current = parent
                 if not np.isclose(path_to_goal[0][0], start_point).all():
                     path_to_goal.insert(
@@ -277,7 +279,7 @@ class Planner:
                 dest_point = sampled_points_list[dict_points_layer[(current[0], current[1])]][i]
                 spline_to_dest = all_discretized_splines_dict[(current[0], current[1], dest_point[0], dest_point[1])]
                 time_to_reach_dest = time_to_reach + self.eval_time_to_reach(spline_to_dest, vx)
-                obj = self.objective_function(spline_to_dest, vx, time_to_reach)
+                obj = self.objective_function(spline_to_dest, vx, time_to_reach, lane_id)
                 new_cost_to_reach = cost + obj
                 cost_to_reach_neighbor = cost_map.get(
                     (dest_point[0], dest_point[1]), float("inf")
@@ -287,7 +289,7 @@ class Planner:
                     parent_map[(dest_point[0], dest_point[1])] = current
                     time_map[(dest_point[0], dest_point[1])] = time_to_reach_dest
                     heapq.heappush(Q, (new_cost_to_reach, dest_point))
-        return path_to_goal, cost_path_to_goal
+        return path_to_goal, cost_path_to_goal, time_path_to_goal
 
     def eval_time_to_reach(self, spline, vx):
         time_to_reach = 0
@@ -359,7 +361,7 @@ class Planner:
                         np.array(poly.centroid.coords[0]) - np.array(self.cars["Ego"][i].centroid.coords[0])
                     )
                     closest_timestep = i
-        closest_timestep = 0
+        closest_timestep = t0
         # Plot the polygons for the closest timestep
         for key, polygons in self.cars.items():
             poly = polygons[closest_timestep]
@@ -448,25 +450,25 @@ class Planner:
                         vx = self.sim_obs.players[keys].state.vx
         return vx
 
-    def objective_function(self, spline: List[Tuple[float, float]], vx, t0) -> float:
+    def objective_function(self, spline: List[Tuple[float, float]], vx, t0, lane_id) -> float:
         objective_value = 0.0
         # t_predict = time.time()
         self.predict_other_cars_positions(spline, vx, t0)
         # print("Predict time: ", time.time() - t_predict)
         # t_collision = time.time()
         collisions = self.detect_collisions()
+        for timestep in collisions:
+            if collisions[timestep]:
+                # print("COLLISION DETECTED", collisions[timestep])
+                objective_value += 1000000
         # print("Collision time: ", time.time() - t_collision)
-        if any(collisions[timestep] for timestep in collisions):
-            objective_value += 1000000
+        # if any(collisions[timestep] for timestep in collisions):
+        #     objective_value += 1000000
         for i, spli in enumerate(spline):
             # Smoothness term
             # TODO I'd like to do this analytically with the coefficients of the spline and evaluating the integrals but
             # an appropriate data structure would be needed
             # Guidance term
-            if self.sampling_on_goal_lane:
-                lane_id = self.goal_lanelet_id
-            else:
-                lane_id = self.current_ego_lanelet_id
             a, b, c = self.center_lines[lane_id]
             distance = self.distance_point_to_line_2d(a, b, c, spline[i][0], spline[i][1])
             objective_value += (
@@ -516,7 +518,7 @@ class Planner:
 
         return lanelet
 
-    def compute_center_lines_coefficients(self, ego_position):
+    def compute_center_lines_coefficients(self, ego_position, lanes: List[Lanelet]):
         """
         Compute a dictionary of lanelet line coefficients (a, b, c) for each lanelet.
 
@@ -527,9 +529,8 @@ class Planner:
         dict: A dictionary where keys are lanelet IDs and values are the coefficients (a, b, c) of the line
             passing through the first and last center points.
         """
-        lanelet_lines = {}
 
-        for lanelet in self.lanelet_network.lanelets:
+        for lanelet in lanes:
             lanelet_id = lanelet.lanelet_id
             center_points = np.array(lanelet.center_vertices)
 
@@ -537,7 +538,9 @@ class Planner:
 
             distance = np.linalg.norm(center_points - ego_position, axis=1)
             p1 = center_points[np.argmin(distance)]
-            p2 = center_points[-1]
+            p2 = center_points[min(np.argmin(distance) + 4, len(center_points) - 1)]
+            if (p1 == p2).all():
+                continue
 
             # Compute the line coefficients
             # Line equation: ax + by + c = 0
@@ -549,8 +552,7 @@ class Planner:
             c = p2[0] * p1[1] - p1[0] * p2[1]
 
             # Store the coefficients in the dictionary
-            lanelet_lines[lanelet_id] = [a, b, c]
-        self.center_lines = lanelet_lines
+            self.center_lines[lanelet_id] = [a, b, c]
 
     def distance_point_to_line_2d(self, a, b, c, x1, y1):
         """
@@ -602,6 +604,8 @@ class Planner:
         Returns:
         List[StaticObstacle]: A list of static obstacles with predicted positions.
         """
+
+        self.cars = {}
         timesteps = self.predict_ego_positions(spline, vx, t0)
         for car in self.sim_obs.players:
             if car != "Ego":
@@ -634,13 +638,14 @@ class Planner:
                 psi = self.sim_obs.players[car].state.psi
                 if signed_dist_to_car < -1.5:
                     # constant deceleration model
+                    x = x0
+                    y = y0
                     for t in timesteps:
-                        if vx - 8 * t < 0:
-                            x = x0
-                            y = y0
-                        else:
-                            x = x0 + max(vx * t * np.cos(psi) - 0.5 * 8 * (t**2) * np.cos(psi), 0)
-                            y = y0 + max(vx * t * np.sin(psi) - 0.5 * 8 * (t**2) * np.sin(psi), 0)
+                        if vx - 8 * t > 0:
+                            added_space = vx * t - 0.5 * 8 * (t**2)
+                            if added_space > 0:
+                                x = x0 + added_space * np.cos(psi)
+                                y = y0 + added_space * np.sin(psi)
                         self.cars[car].append(self.create_oriented_rectangle([x, y], psi, car))
                 else:
                     for t in timesteps:
@@ -666,6 +671,8 @@ class Planner:
         local_corners = np.array(car.occupancy.exterior.coords) - np.array(
             [self.sim_obs.players[car_id].state.x, self.sim_obs.players[car_id].state.y]
         ).reshape(1, -1)
+
+        local_corners = local_corners * 1.1
 
         # Rotation matrix for the given orientation
         rotation_matrix = np.array([[np.cos(theta), -np.sin(theta)], [np.sin(theta), np.cos(theta)]])
