@@ -1,0 +1,34 @@
+task_level: 3
+
+testcases:
+  # -
+  #   scenario: "USA_US101-15_2_T-1"
+  #   max_sim_time: 10.0
+  #   ego:
+  #     original_name: P20
+  #     goal_lane_id: 28
+  #   others:
+  #     names:  [P5, P8, P9, P10, P16, P18, P24, P26, P28, P29, P30, P31, P32, P33, P34, P35]
+  #   description: "scenario1"
+  #   # Lanelet 28: {36, 34, 31, 24, 18, 9, 5, 2, 'P31', 'P33', 'P34', 'P28', 'P26', 'P32', 'P30', 'P29', 'P35'}
+  #   # Lanelet 42: {'P17', 'P23', '20', 25, 10, 8, 3}
+  #   # Lanelet 26: {'P21', 'P16', 'P19', 14, 6, 4}
+  #   # Lanelet 23: {'P15', 27, 13, 7, 0}
+  #   # Lanelet 20: {'P22', 11, 1}
+  -
+    scenario: "USA_US101-10_3_T-1"
+    max_sim_time: 10.0
+    ego:
+      original_name: P28
+      goal_lane_id: 18
+    others:
+      names: [P41, P42, P40, P39, P38, P36, P35, P29, P22, P17, P13, P5, P43, P34, P27]
+    description: "scenario2"
+    # lanelets from left to right in direction of traffic flow
+    # Lanelet 18: {'P43', 'P42', 'P41', 'P40', 'P39', 'P38', 'P36', 'P35', 'P29', 'P26', 'P22', 'P17', P13, P5}
+    # Lanelet 40: {P34, P28, P27, 'P8', 'P18', 'P4', P2}
+    # Lanelet 14: {31, 21, 'P20', 'P21', 'P9', 'P16', 3}
+    # Lanelet 11: {33, 32, 24, 23, 15, 'P12', 'P10', 'P15', 'P7'}
+    # Lanelet 8: {'P11', 'P6', 'P19', 'P14'}
+
+seed: 98

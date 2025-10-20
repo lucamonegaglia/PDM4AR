@@ -1,0 +1,32 @@
+task_level: 1
+
+testcases:
+  -
+    scenario: "ZAM_Zip-1_64_T-1"
+    max_sim_time: 10.0
+    ego:
+      original_name: P0
+      goal_lane_id: 26
+    others:
+      names: [P1, P2]
+    description: "scenario1"
+    
+    # Lanelet 25: {'P0'}
+    # Lanelet 26: {'P1', 'P2'}
+  -
+    scenario: "USA_US101-10_3_T-1"
+    max_sim_time: 10.0
+    ego:
+      original_name: P26
+      goal_lane_id: 40
+    others:
+      names: [P8, P9, P18, P22]
+    description: "scenario2"
+    # lanelets from left to right in direction of traffic flow
+    # Lanelet 18: {'P43', 'P42', 'P41', 'P40', 'P39', 'P38', 'P36', 'P35', 'P29', 'P26', 'P22', 'P17', P13, P5}
+    # Lanelet 40: {P34, P28, P27, 'P8', 'P18', 'P4', P2}
+    # Lanelet 14: {31, 21, 'P20', 'P21', 'P9', 'P16', 3}
+    # Lanelet 11: {33, 32, 24, 23, 15, 'P12', 'P10', 'P15', 'P7'}
+    # Lanelet 8: {'P11', 'P6', 'P19', 'P14'}
+
+seed: 98
