@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 description: PDM4AR programming exercises [Fall 2024]
 
 theme: jekyll-theme-cayman
@@ -6,3 +7,13 @@ baseurl: /exercises
 
 plugins:
   - jemoji
+=======
+description: PDM4AR programming exercises [Fall 2024]
+
+theme: jekyll-theme-cayman
+url: https://pdm4ar.github.io
+baseurl: /exercises
+
+plugins:
+  - jemoji
+>>>>>>> ex11/master
